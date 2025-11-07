@@ -1,0 +1,61 @@
+# CLAUDE
+.claude/
+
+# IDE
+.idea/
+.vscode/
+
+# Python
+Pipfile.lock
+
+# OS
+.DS_Store
+
+# Rust
+target/
+**/*.rs.bk
+
+# Cargo
+Cargo.lock
+
+# Temporary files
+*.tmp
+*.temp
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Debug files
+*.dSYM/
+*.pdb
+
+# Temporary directories
+/tmp/
+/temp/
+
+# Build artifacts
+*.a
+*.lib
+*.rlib
+
+# Configuration
+*.conf
+*.config
+
+# Logs
+*.log
+
+# Test output
+*.test-out
+
+# Coverage
+coverage/
+*.gcov
+*.lcov
+
+# Generated files
+/binfile*
+/objfile*
