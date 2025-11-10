@@ -5,9 +5,11 @@ use anyhow::Result;
 mod cli;
 mod error;
 mod parser;
+mod compiler;
 
 use cli::Cli;
 use parser::parse_asm_test_file;
+use compiler::compile_with_nasm;
 
 fn main() -> Result<()> {
     // 解析命令行参数
@@ -40,6 +42,31 @@ fn execute_test(cli: &Cli) -> Result<()> {
                     println!("成功解析汇编文件");
                     println!("配置: {:?}", asm_test_file.config);
                     println!("汇编代码行数: {}", asm_test_file.assembly_code.lines().count());
+                }
+
+                // 编译汇编文件
+                match compile_with_nasm(test_file_path, &asm_test_file.config, Some("/tmp")) {
+                    Ok(compile_result) => {
+                        if compile_result.success {
+                            if !cli.quiet {
+                                println!("成功编译汇编文件: {}", compile_result.object_file);
+                            }
+
+                            // TODO: 实现后续的链接和执行逻辑
+
+                            // 清理编译生成的文件
+                            if let Err(e) = compiler::cleanup_compiled_files(&compile_result.object_file) {
+                                eprintln!("清理编译文件时出错: {}", e);
+                            }
+                        } else {
+                            eprintln!("编译失败: {:?}", compile_result.error_message);
+                            return Err(anyhow::anyhow!("编译失败"));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("编译汇编文件时出错: {}", e);
+                        return Err(e.into());
+                    }
                 }
             }
             Err(e) => {
