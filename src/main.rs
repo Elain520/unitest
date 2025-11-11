@@ -71,6 +71,7 @@ fn execute_test(cli: &Cli) -> Result<()> {
                                                     println!("成功解析ELF文件");
                                                     println!("入口点地址: 0x{:x}", elf_info.entry_point);
                                                     println!("架构类型: {}", if elf_info.is_32bit { "32位" } else { "64位" });
+                                                    println!("符号数量: {}", elf_info.symbols.len());
 
                                                     if let Some(ref code_section) = elf_info.code_section {
                                                         println!("代码段大小: {} 字节", code_section.size);
@@ -78,6 +79,21 @@ fn execute_test(cli: &Cli) -> Result<()> {
 
                                                     if let Some(ref data_section) = elf_info.data_section {
                                                         println!("数据段大小: {} 字节", data_section.size);
+                                                    }
+
+                                                    // 显示前几个符号信息
+                                                    let mut symbol_count = 0;
+                                                    for (name, symbol) in &elf_info.symbols {
+                                                        if symbol_count < 5 {
+                                                            println!("符号 '{}': 地址 0x{:x}, 大小 {}, 类型 {:?}",
+                                                                     name, symbol.address, symbol.size, symbol.sym_type);
+                                                            symbol_count += 1;
+                                                        } else {
+                                                            break;
+                                                        }
+                                                    }
+                                                    if elf_info.symbols.len() > 5 {
+                                                        println!("... 还有 {} 个符号", elf_info.symbols.len() - 5);
                                                     }
                                                 }
 

@@ -3,7 +3,8 @@
 //! 负责解析ELF文件，提取代码段和数据段信息
 
 use crate::error::{AsmTestError, Result};
-use goblin::elf::{Elf, SectionHeader};
+use goblin::elf::{Elf, SectionHeader, Sym};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -14,10 +15,38 @@ pub struct ElfInfo {
     pub code_section: Option<SectionInfo>,
     /// 数据段信息
     pub data_section: Option<SectionInfo>,
+    /// 符号表信息
+    pub symbols: HashMap<String, SymbolInfo>,
     /// 入口点地址
     pub entry_point: u64,
     /// 架构类型（32位或64位）
     pub is_32bit: bool,
+}
+
+/// 符号信息
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    /// 符号名称
+    pub name: String,
+    /// 符号地址
+    pub address: u64,
+    /// 符号大小
+    pub size: u64,
+    /// 符号类型
+    pub sym_type: SymbolType,
+}
+
+/// 符号类型
+#[derive(Debug, Clone)]
+pub enum SymbolType {
+    /// 函数符号
+    Function,
+    /// 对象符号
+    Object,
+    /// 未定义符号
+    Undefined,
+    /// 其他符号类型
+    Other,
 }
 
 /// 段信息
@@ -73,9 +102,13 @@ pub fn parse_elf_file<P: AsRef<Path>>(elf_file: P) -> Result<ElfInfo> {
         }
     }
 
+    // 解析符号表
+    let symbols = parse_symbols(&elf, &buffer)?;
+
     Ok(ElfInfo {
         code_section,
         data_section,
+        symbols,
         entry_point: elf.entry,
         is_32bit,
     })
@@ -115,6 +148,44 @@ pub fn cleanup_elf_files(elf_file: &str) -> Result<()> {
         fs::remove_file(elf_file).map_err(AsmTestError::Io)?;
     }
     Ok(())
+}
+
+/// 解析ELF符号表
+fn parse_symbols(elf: &Elf, _buffer: &[u8]) -> Result<HashMap<String, SymbolInfo>> {
+    let mut symbols = HashMap::new();
+
+    // 遍历符号表
+    for sym in &elf.syms {
+        if let Some(name) = elf.strtab.get_at(sym.st_name) {
+            if !name.is_empty() {
+                let symbol_info = SymbolInfo {
+                    name: name.to_string(),
+                    address: sym.st_value,
+                    size: sym.st_size,
+                    sym_type: get_symbol_type(&sym),
+                };
+                symbols.insert(name.to_string(), symbol_info);
+            }
+        }
+    }
+
+    Ok(symbols)
+}
+
+/// 获取符号类型
+fn get_symbol_type(sym: &Sym) -> SymbolType {
+    match sym.st_type() {
+        goblin::elf::sym::STT_FUNC => SymbolType::Function,
+        goblin::elf::sym::STT_OBJECT => SymbolType::Object,
+        goblin::elf::sym::STT_NOTYPE => {
+            if sym.st_shndx == 0 {
+                SymbolType::Undefined
+            } else {
+                SymbolType::Other
+            }
+        },
+        _ => SymbolType::Other,
+    }
 }
 
 #[cfg(test)]

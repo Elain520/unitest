@@ -50,11 +50,7 @@ pub fn link_with_system_linker<P: AsRef<Path>>(
     let executable_file = format!("{}/{}", output_dir, file_name);
 
     // 确定链接器名称
-    let linker_name = if is_32bit {
-        "i686-linux-gnu-ld"
-    } else {
-        "x86_64-linux-gnu-ld"
-    };
+    let linker_name= "x86_64-linux-gnu-ld";
 
     // 检查链接器是否存在
     if !is_linker_available(linker_name) {
