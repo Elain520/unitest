@@ -6,10 +6,12 @@ mod cli;
 mod error;
 mod parser;
 mod compiler;
+mod linker;
 
 use cli::Cli;
 use parser::parse_asm_test_file;
 use compiler::compile_with_nasm;
+use linker::link_with_system_linker;
 
 fn main() -> Result<()> {
     // 解析命令行参数
@@ -52,11 +54,34 @@ fn execute_test(cli: &Cli) -> Result<()> {
                                 println!("成功编译汇编文件: {}", compile_result.object_file);
                             }
 
-                            // TODO: 实现后续的链接和执行逻辑
+                            // 链接目标文件
+                            match link_with_system_linker(&compile_result.object_file, &asm_test_file.config, Some("/tmp")) {
+                                Ok(link_result) => {
+                                    if link_result.success {
+                                        if !cli.quiet {
+                                            println!("成功链接目标文件: {}", link_result.executable_file);
+                                        }
 
-                            // 清理编译生成的文件
-                            if let Err(e) = compiler::cleanup_compiled_files(&compile_result.object_file) {
-                                eprintln!("清理编译文件时出错: {}", e);
+                                        // TODO: 实现后续的执行逻辑
+
+                                        // 清理链接生成的文件
+                                        if let Err(e) = linker::cleanup_linked_files(&link_result.executable_file) {
+                                            eprintln!("清理链接文件时出错: {}", e);
+                                        }
+
+                                        // 清理编译生成的文件
+                                        if let Err(e) = compiler::cleanup_compiled_files(&compile_result.object_file) {
+                                            eprintln!("清理编译文件时出错: {}", e);
+                                        }
+                                    } else {
+                                        eprintln!("链接失败: {:?}", link_result.error_message);
+                                        return Err(anyhow::anyhow!("链接失败"));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("链接目标文件时出错: {}", e);
+                                    return Err(e.into());
+                                }
                             }
                         } else {
                             eprintln!("编译失败: {:?}", compile_result.error_message);
