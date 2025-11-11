@@ -7,11 +7,13 @@ mod error;
 mod parser;
 mod compiler;
 mod linker;
+mod elf;
 
 use cli::Cli;
 use parser::parse_asm_test_file;
 use compiler::compile_with_nasm;
 use linker::link_with_system_linker;
+use elf::parse_elf_file;
 
 fn main() -> Result<()> {
     // 解析命令行参数
@@ -62,7 +64,35 @@ fn execute_test(cli: &Cli) -> Result<()> {
                                             println!("成功链接目标文件: {}", link_result.executable_file);
                                         }
 
-                                        // TODO: 实现后续的执行逻辑
+                                        // 解析ELF文件
+                                        match parse_elf_file(&link_result.executable_file) {
+                                            Ok(elf_info) => {
+                                                if !cli.quiet {
+                                                    println!("成功解析ELF文件");
+                                                    println!("入口点地址: 0x{:x}", elf_info.entry_point);
+                                                    println!("架构类型: {}", if elf_info.is_32bit { "32位" } else { "64位" });
+
+                                                    if let Some(ref code_section) = elf_info.code_section {
+                                                        println!("代码段大小: {} 字节", code_section.size);
+                                                    }
+
+                                                    if let Some(ref data_section) = elf_info.data_section {
+                                                        println!("数据段大小: {} 字节", data_section.size);
+                                                    }
+                                                }
+
+                                                // TODO: 实现后续的执行逻辑
+
+                                                // 清理ELF文件
+                                                if let Err(e) = elf::cleanup_elf_files(&link_result.executable_file) {
+                                                    eprintln!("清理ELF文件时出错: {}", e);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                eprintln!("解析ELF文件时出错: {}", e);
+                                                return Err(e.into());
+                                            }
+                                        }
 
                                         // 清理链接生成的文件
                                         if let Err(e) = linker::cleanup_linked_files(&link_result.executable_file) {
