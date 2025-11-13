@@ -8,5 +8,3 @@
 
 mov rdx, 0xc0
 shr rdx, 4
-
-int3

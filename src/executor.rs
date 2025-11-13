@@ -5,7 +5,7 @@
 use crate::error::{AsmTestError, Result};
 use crate::elf::ElfInfo;
 use x86_asm_test::{AsmTestConfig, RegisterData};
-use libc::{c_void, pid_t, waitpid, WIFSTOPPED, WSTOPSIG, SIGTRAP, SIGSTOP, fork, ptrace, PTRACE_TRACEME, PTRACE_ATTACH, PTRACE_DETACH, PTRACE_GETREGS, PTRACE_SETREGS, PTRACE_CONT, PTRACE_GETREGSET, mmap, munmap, MAP_PRIVATE, MAP_ANONYMOUS, MAP_FIXED, PROT_READ, PROT_WRITE, PROT_EXEC, user_regs_struct, kill, raise, sleep};
+use libc::{c_void, pid_t, waitpid, WIFSTOPPED, WSTOPSIG, SIGTRAP, SIGSTOP, fork, ptrace, PTRACE_TRACEME, PTRACE_ATTACH, PTRACE_DETACH, PTRACE_GETREGS, PTRACE_SETREGS, PTRACE_CONT, PTRACE_GETREGSET, mmap, munmap, MAP_PRIVATE, MAP_ANONYMOUS, MAP_FIXED, PROT_READ, PROT_WRITE, PROT_EXEC, user_regs_struct, kill, raise, sleep, MAP_FIXED_NOREPLACE, iovec, PTRACE_SETREGSET};
 
 /// 执行结果
 #[derive(Debug)]
@@ -31,7 +31,7 @@ pub fn execute_elf_file(elf_info: &ElfInfo, config: &AsmTestConfig) -> Result<Ex
         if pid == 0 {
             // 子进程
             if let Err(e) = execute_in_child_process(elf_info, config) {
-                eprintln!("子进程执行错误: {}", e);
+                eprintln!("[child] 子进程执行错误: {}", e);
                 std::process::exit(1);
             }
             // 子进程不应该到达这里
@@ -40,7 +40,7 @@ pub fn execute_elf_file(elf_info: &ElfInfo, config: &AsmTestConfig) -> Result<Ex
             // 父进程
             return execute_in_parent_process(pid, elf_info, config);
         } else {
-            return Err(AsmTestError::Execution("创建子进程失败".to_string()));
+            return Err(AsmTestError::Execution("[parent] 创建子进程失败".to_string()));
         }
     }
 }
@@ -56,9 +56,9 @@ unsafe fn execute_in_child_process(elf_info: &ElfInfo, _config: &AsmTestConfig) 
     // 允许父进程通过ptrace控制
     let result = ptrace(PTRACE_TRACEME, 0, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>());
     if result == -1 {
-        return Err(AsmTestError::Execution("无法设置PTRACE_TRACEME".to_string()));
+        return Err(AsmTestError::Execution("[child] 无法设置PTRACE_TRACEME".to_string()));
     }
-    
+
     // 发送SIGSTOP信号让自己停止，等待父进程附加
     raise(SIGSTOP);
 
@@ -70,24 +70,25 @@ unsafe fn execute_in_child_process(elf_info: &ElfInfo, _config: &AsmTestConfig) 
     // 分配栈内存
     let stack_address = 0xE0000000u64;
     let stack_size = 16 * 4096usize;
-    let _stack_memory = allocate_fixed_memory_rw(stack_address,
-                                                 stack_size)?;
+    let _stack_memory = allocate_fixed_memory_rw(stack_address, stack_size)?;
 
     // 如果有代码段，将代码加载到内存中
     if let Some(ref code_section) = elf_info.code_section {
-        if code_section.size <= code_size {
+        if code_section.size + 2 <= code_size {
             // 在代码开始处插入int3断点，用于让父进程有机会附加
             let first_byte = code_memory as *mut u8;
             *first_byte = 0xCC; // int3指令
 
             // 将代码加载到内存中（从第二个字节开始）
             std::ptr::copy_nonoverlapping(code_section.data.as_ptr(), (code_memory as *mut u8).add(1), code_section.size);
-            
+
+            let end_byte = (code_memory as *mut u8).add(1 + code_section.size);
+            *end_byte = 0xCC; // int3指令
             // 打印代码段内容用于调试
             if cfg!(debug_assertions) {
-                eprintln!("代码段大小: {}", code_section.size);
-                eprintln!("代码段内容 (hex):");
-                for i in 0..code_section.size + 1 {
+                eprintln!("[child] 代码段大小: {}", code_section.size);
+                eprintln!("[child] 代码段内容 (hex):");
+                for i in 0..code_section.size + 2 {
                     eprint!("{:02x} ", *((code_memory as *mut u8).add(i)));
                 }
                 eprintln!();
@@ -97,17 +98,17 @@ unsafe fn execute_in_child_process(elf_info: &ElfInfo, _config: &AsmTestConfig) 
 
     // 修改内存保护为可执行
     if cfg!(debug_assertions) {
-        eprintln!("修改内存保护为可执行");
+        eprintln!("[child] 修改内存保护为可执行");
     }
     let result = libc::mprotect(code_memory, code_size, PROT_READ | PROT_EXEC);
     if result == -1 {
         if cfg!(debug_assertions) {
-            eprintln!("mprotect调用失败");
+            eprintln!("[child] mprotect调用失败");
         }
-        return Err(AsmTestError::Execution("无法设置代码内存为可执行".to_string()));
+        return Err(AsmTestError::Execution("[child] 无法设置代码内存为可执行".to_string()));
     }
     if cfg!(debug_assertions) {
-        eprintln!("mprotect调用成功");
+        eprintln!("[child] mprotect调用成功");
     }
 
     // 直接跳转到代码开始处执行
@@ -132,73 +133,73 @@ fn execute_in_parent_process(pid: pid_t, _elf_info: &ElfInfo, _config: &AsmTestC
 
     // 等待子进程触发SIGSTOP信号
     if cfg!(debug_assertions) {
-        eprintln!("等待子进程触发SIGSTOP信号");
+        eprintln!("[parent] 等待子进程触发SIGSTOP信号");
     }
     let mut status: i32 = 0;
     let result = unsafe { waitpid(pid, &mut status, 0) };
     if result == -1 {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("等待子进程失败".to_string()));
+        return Err(AsmTestError::Execution("[parent] 等待子进程失败".to_string()));
     }
 
     if cfg!(debug_assertions) {
-        eprintln!("子进程状态: status={}", status);
-        eprintln!("WIFSTOPPED: {}", WIFSTOPPED(status));
+        eprintln!("[parent] 子进程状态: status={}", status);
+        eprintln!("[parent] WIFSTOPPED: {}", WIFSTOPPED(status));
         if WIFSTOPPED(status) {
-            eprintln!("WSTOPSIG: {}", WSTOPSIG(status));
+            eprintln!("[parent] WSTOPSIG: {}", WSTOPSIG(status));
         }
     }
 
     if !(WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP) {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("子进程未在预期的SIGSTOP信号处停止".to_string()));
+        return Err(AsmTestError::Execution("[parent] 子进程未在预期的SIGSTOP信号处停止".to_string()));
     }
 
     // 让子进程继续运行到第一个int3断点
     if cfg!(debug_assertions) {
-        eprintln!("让子进程继续运行到第一个int3断点");
+        eprintln!("[parent] 让子进程继续运行到第一个int3断点");
     }
     let result = unsafe { ptrace(PTRACE_CONT, pid, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>()) };
     if result == -1 {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("无法继续执行子进程".to_string()));
+        return Err(AsmTestError::Execution("[parent] 无法继续执行子进程".to_string()));
     }
 
     // 等待子进程停止（遇到第一个SIGTRAP）
     if cfg!(debug_assertions) {
-        eprintln!("等待子进程停止（遇到第一个SIGTRAP）");
+        eprintln!("[parent] 等待子进程停止（遇到第一个SIGTRAP）");
     }
     let result = unsafe { waitpid(pid, &mut status, 0) };
     if result == -1 {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("等待子进程失败".to_string()));
+        return Err(AsmTestError::Execution("[parent] 等待子进程失败".to_string()));
     }
 
     if !(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("子进程未在起始int3断点处停止".to_string()));
+        return Err(AsmTestError::Execution("[parent] 子进程未在起始int3断点处停止".to_string()));
     }
 
     // 获取子进程寄存器状态
     if cfg!(debug_assertions) {
-        eprintln!("获取子进程寄存器状态");
+        eprintln!("[parent] 获取子进程寄存器状态");
     }
     let mut regs: user_regs_struct = unsafe { std::mem::zeroed() };
     let result = unsafe { ptrace(PTRACE_GETREGS, pid, std::ptr::null_mut::<c_void>(), &mut regs as *mut user_regs_struct as *mut c_void) };
     if result == -1 {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("无法获取子进程寄存器状态".to_string()));
+        return Err(AsmTestError::Execution("[parent] 无法获取子进程寄存器状态".to_string()));
     }
 
     // 设置初始寄存器状态
     if cfg!(debug_assertions) {
-        eprintln!("设置初始寄存器状态");
+        eprintln!("[parent] 设置初始寄存器状态");
     }
     if let Err(e) = set_initial_registers(pid, &mut regs) {
         // 杀死子进程
@@ -208,39 +209,39 @@ fn execute_in_parent_process(pid: pid_t, _elf_info: &ElfInfo, _config: &AsmTestC
 
     // 继续执行直到遇到第二个SIGTRAP（代码结束处的int3）
     if cfg!(debug_assertions) {
-        eprintln!("继续执行直到遇到第二个SIGTRAP（代码结束处的int3）");
+        eprintln!("[parent] 继续执行直到遇到第二个SIGTRAP（代码结束处的int3）");
     }
     let result = unsafe { ptrace(PTRACE_CONT, pid, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>()) };
     if result == -1 {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("无法继续执行子进程".to_string()));
+        return Err(AsmTestError::Execution("[parent] 无法继续执行子进程".to_string()));
     }
 
     // 等待子进程停止（遇到第二个SIGTRAP）
     if cfg!(debug_assertions) {
-        eprintln!("等待子进程停止（遇到第二个SIGTRAP）");
+        eprintln!("[parent] 等待子进程停止（遇到第二个SIGTRAP）");
     }
     let result = unsafe { waitpid(pid, &mut status, 0) };
     if result == -1 {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("等待子进程失败".to_string()));
+        return Err(AsmTestError::Execution("[parent] 等待子进程失败".to_string()));
     }
 
     // 打印调试信息
     if cfg!(debug_assertions) {
-        eprintln!("子进程状态: status={}", status);
-        eprintln!("WIFSTOPPED: {}", WIFSTOPPED(status));
+        eprintln!("[parent] 子进程状态: status={}", status);
+        eprintln!("[parent] WIFSTOPPED: {}", WIFSTOPPED(status));
         if WIFSTOPPED(status) {
-            eprintln!("WSTOPSIG: {}", WSTOPSIG(status));
+            eprintln!("[parent] WSTOPSIG: {}", WSTOPSIG(status));
         }
     }
 
     if !(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
-        return Err(AsmTestError::Execution("子进程未在结束int3断点处停止".to_string()));
+        return Err(AsmTestError::Execution("[parent] 子进程未在结束int3断点处停止".to_string()));
     }
 
     // 获取最终寄存器状态
@@ -289,6 +290,7 @@ fn get_registers(pid: pid_t) -> Result<RegisterData> {
     register_data.rdi = Some(format!("0x{:016x}", regs.rdi));
     register_data.rbp = Some(format!("0x{:016x}", regs.rbp));
     register_data.rsp = Some(format!("0x{:016x}", regs.rsp));
+    register_data.rip = Some(format!("0x{:016x}", regs.rip));
     register_data.r8 = Some(format!("0x{:016x}", regs.r8));
     register_data.r9 = Some(format!("0x{:016x}", regs.r9));
     register_data.r10 = Some(format!("0x{:016x}", regs.r10));
@@ -318,7 +320,10 @@ fn set_initial_registers(pid: pid_t, regs: &mut user_regs_struct) -> Result<()> 
     regs.rsi = 0;
     regs.rdi = 0;
     regs.rbp = 0;
-    regs.rsp = 0xE0000000; // 设置栈指针到固定地址
+    // 设置栈指针到栈顶，预留红区（128字节）并保持16字节对齐
+    let stack_top = 0xE0000000u64 + 16u64 * 4096u64; // 栈顶地址
+    let rsp_top = (stack_top - 128) & !0xFu64; // 预留红区并16字节对齐
+    regs.rsp = rsp_top;
     regs.r8 = 0;
     regs.r9 = 0;
     regs.r10 = 0;
@@ -348,7 +353,7 @@ fn allocate_fixed_memory_rw(address: u64, size: usize) -> Result<*mut c_void> {
             address as *mut c_void,
             size,
             PROT_READ | PROT_WRITE,
-            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE,
             -1,
             0,
         )
@@ -368,14 +373,14 @@ fn allocate_fixed_memory_rw(address: u64, size: usize) -> Result<*mut c_void> {
                     0,
                 )
             };
-            
+
             if result == libc::MAP_FAILED {
                 return Err(AsmTestError::MemoryMap("无法分配固定地址内存".to_string()));
             }
-            
+
             return Ok(result);
         }
-        
+
         return Err(AsmTestError::MemoryMap("无法分配固定地址内存".to_string()));
     }
 
@@ -410,14 +415,14 @@ fn allocate_fixed_memory_rwx(address: u64, size: usize) -> Result<*mut c_void> {
                     0,
                 )
             };
-            
+
             if result == libc::MAP_FAILED {
                 return Err(AsmTestError::MemoryMap("无法分配固定地址内存".to_string()));
             }
-            
+
             return Ok(result);
         }
-        
+
         return Err(AsmTestError::MemoryMap("无法分配固定地址内存".to_string()));
     }
 

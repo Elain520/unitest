@@ -50,6 +50,8 @@ pub struct RegisterData {
     pub rsi: Option<String>,
     #[serde(rename = "RDI", skip_serializing_if = "Option::is_none")]
     pub rdi: Option<String>,
+    #[serde(rename = "RIP", skip_serializing_if = "Option::is_none")]
+    pub rip: Option<String>,
     #[serde(rename = "R8", skip_serializing_if = "Option::is_none")]
     pub r8: Option<String>,
     #[serde(rename = "R9", skip_serializing_if = "Option::is_none")]
@@ -179,6 +181,7 @@ impl RegisterData {
             rbp: None,
             rsi: None,
             rdi: None,
+            rip: None,
             r8: None,
             r9: None,
             r10: None,
