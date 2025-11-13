@@ -8,6 +8,7 @@ mod parser;
 mod compiler;
 mod linker;
 mod elf;
+mod executor;
 
 use cli::Cli;
 use parser::parse_asm_test_file;
@@ -97,7 +98,24 @@ fn execute_test(cli: &Cli) -> Result<()> {
                                                     }
                                                 }
 
-                                                // TODO: 实现后续的执行逻辑
+                                                                                                // 执行ELF文件
+                                                match executor::execute_elf_file(&elf_info, &asm_test_file.config) {
+                                                    Ok(execute_result) => {
+                                                        if execute_result.success {
+                                                            if !cli.quiet {
+                                                                println!("成功执行ELF文件");
+                                                                if let Some(ref register_data) = execute_result.register_data {
+                                                                    println!("寄存器状态: {:?}", register_data);
+                                                                }
+                                                            }
+                                                        } else {
+                                                            eprintln!("执行失败: {:?}", execute_result.error_message);
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("执行ELF文件时出错: {}", e);
+                                                    }
+                                                }
 
                                                 // 清理ELF文件
                                                 if let Err(e) = elf::cleanup_elf_files(&link_result.executable_file) {
