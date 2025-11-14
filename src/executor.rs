@@ -4,7 +4,7 @@
 
 use crate::error::{AsmTestError, Result};
 use crate::elf::ElfInfo;
-use x86_asm_test::{AsmTestConfig, RegisterData};
+use x86_asm_test::{AsmTestConfig, RegisterData, XmmRegisters};
 use libc::{c_void, pid_t, waitpid, WIFSTOPPED, WSTOPSIG, SIGTRAP, SIGSTOP, fork, ptrace, PTRACE_TRACEME, PTRACE_ATTACH, PTRACE_DETACH, PTRACE_GETREGS, PTRACE_SETREGS, PTRACE_CONT, PTRACE_GETREGSET, mmap, munmap, MAP_PRIVATE, MAP_ANONYMOUS, MAP_FIXED, PROT_READ, PROT_WRITE, PROT_EXEC, user_regs_struct, kill, raise, sleep, MAP_FIXED_NOREPLACE, iovec, PTRACE_SETREGSET};
 
 /// 执行结果
@@ -299,15 +299,144 @@ fn get_registers(pid: pid_t) -> Result<RegisterData> {
     register_data.r13 = Some(format!("0x{:016x}", regs.r13));
     register_data.r14 = Some(format!("0x{:016x}", regs.r14));
     register_data.r15 = Some(format!("0x{:016x}", regs.r15));
-    register_data.flags = Some(format!("0x{:08x}", regs.eflags));
+    // register_data.flags = Some(format!("0x{:08x}", regs.eflags));
+    let flags_value = regs.eflags;
+    register_data.flags = Some(format_flags(flags_value));
+
+    // 获取XMM寄存器状态
+    if let Ok(xmm_registers) = get_xmm_registers(pid) {
+        register_data.xmm0 = xmm_registers.xmm0;
+        register_data.xmm1 = xmm_registers.xmm1;
+        register_data.xmm2 = xmm_registers.xmm2;
+        register_data.xmm3 = xmm_registers.xmm3;
+        register_data.xmm4 = xmm_registers.xmm4;
+        register_data.xmm5 = xmm_registers.xmm5;
+        register_data.xmm6 = xmm_registers.xmm6;
+        register_data.xmm7 = xmm_registers.xmm7;
+        register_data.xmm8 = xmm_registers.xmm8;
+        register_data.xmm9 = xmm_registers.xmm9;
+        register_data.xmm10 = xmm_registers.xmm10;
+        register_data.xmm11 = xmm_registers.xmm11;
+        register_data.xmm12 = xmm_registers.xmm12;
+        register_data.xmm13 = xmm_registers.xmm13;
+        register_data.xmm14 = xmm_registers.xmm14;
+        register_data.xmm15 = xmm_registers.xmm15;
+    }
 
     Ok(register_data)
 }
 
-/// 使用ptrace设置寄存器状态
-fn set_registers(_pid: pid_t, _registers: &RegisterData) -> Result<()> {
-    // TODO: 实现寄存器状态设置逻辑
-    Ok(())
+fn format_flags(flags: u64) -> String {
+    let cf = (flags >> 0) & 1;  // 进位标志
+    let pf = (flags >> 2) & 1;  // 奇偶标志
+    let af = (flags >> 4) & 1;  // 辅助进位标志
+    let zf = (flags >> 6) & 1;  // 零标志
+    let sf = (flags >> 7) & 1;  // 符号标志
+    let tf = (flags >> 8) & 1;  // 陷阱标志
+    let if_flag = (flags >> 9) & 1;  // 中断允许标志
+    let df = (flags >> 10) & 1; // 方向标志
+    let of = (flags >> 11) & 1; // 溢出标志
+
+    let flags_desc = format!(
+        "CF:{}(进位) PF:{}(奇偶) AF:{}(辅助进位) ZF:{}(零) SF:{}(符号) TF:{}(陷阱) IF:{}(中断) DF:{}(方向) OF:{}(溢出)",
+        cf, pf, af, zf, sf, tf, if_flag, df, of
+    );
+
+    format!("0x{:08x} [{}]", flags, flags_desc)
+}
+
+/// 使用ptrace获取XMM寄存器状态
+fn get_xmm_registers(pid: pid_t) -> Result<XmmRegisters> {
+    // 分配足够大的缓冲区来存储XSAVE状态
+    let bufsize = 4096;
+    let xstate_buffer = unsafe {
+        libc::malloc(bufsize)
+    };
+
+    if xstate_buffer.is_null() {
+        return Err(AsmTestError::Execution("无法分配XSAVE状态缓冲区".to_string()));
+    }
+
+    // 确保缓冲区被清零
+    unsafe {
+        libc::memset(xstate_buffer, 0, bufsize);
+    }
+
+    let mut iov = iovec {
+        iov_base: xstate_buffer,
+        iov_len: bufsize,
+    };
+
+    // 获取XSAVE状态
+    let result = unsafe {
+        ptrace(PTRACE_GETREGSET, pid, NT_X86_XSTATE as *mut c_void, &mut iov as *mut iovec as *mut c_void)
+    };
+
+    if result == -1 {
+        unsafe { libc::free(xstate_buffer); }
+        return Err(AsmTestError::Execution("无法获取XMM寄存器状态".to_string()));
+    }
+
+    let mut xmm_registers = XmmRegisters {
+        xmm0: None,
+        xmm1: None,
+        xmm2: None,
+        xmm3: None,
+        xmm4: None,
+        xmm5: None,
+        xmm6: None,
+        xmm7: None,
+        xmm8: None,
+        xmm9: None,
+        xmm10: None,
+        xmm11: None,
+        xmm12: None,
+        xmm13: None,
+        xmm14: None,
+        xmm15: None,
+    };
+
+    // 解析XMM寄存器数据
+    // XSAVE格式: XMM寄存器通常在偏移0xA0处开始
+    if iov.iov_len >= 0xA0 + 16 * 16 {
+        let xmm_base = unsafe { (xstate_buffer as *mut u8).add(0xA0) };
+
+        // 解析每个XMM寄存器 (128位 = 16字节)
+        for i in 0..16 {
+            let xmm_ptr = unsafe { xmm_base.add(i * 16) };
+            let mut xmm_data = Vec::new();
+
+            // 以64位为单位读取XMM寄存器数据
+            for j in 0..2 {
+                let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
+                let data = unsafe { *data_ptr };
+                xmm_data.push(format!("0x{:016x}", data));
+            }
+
+            match i {
+                0 => xmm_registers.xmm0 = Some(xmm_data),
+                1 => xmm_registers.xmm1 = Some(xmm_data),
+                2 => xmm_registers.xmm2 = Some(xmm_data),
+                3 => xmm_registers.xmm3 = Some(xmm_data),
+                4 => xmm_registers.xmm4 = Some(xmm_data),
+                5 => xmm_registers.xmm5 = Some(xmm_data),
+                6 => xmm_registers.xmm6 = Some(xmm_data),
+                7 => xmm_registers.xmm7 = Some(xmm_data),
+                8 => xmm_registers.xmm8 = Some(xmm_data),
+                9 => xmm_registers.xmm9 = Some(xmm_data),
+                10 => xmm_registers.xmm10 = Some(xmm_data),
+                11 => xmm_registers.xmm11 = Some(xmm_data),
+                12 => xmm_registers.xmm12 = Some(xmm_data),
+                13 => xmm_registers.xmm13 = Some(xmm_data),
+                14 => xmm_registers.xmm14 = Some(xmm_data),
+                15 => xmm_registers.xmm15 = Some(xmm_data),
+                _ => {}
+            }
+        }
+    }
+
+    unsafe { libc::free(xstate_buffer); }
+    Ok(xmm_registers)
 }
 
 /// 设置初始寄存器状态
@@ -342,6 +471,77 @@ fn set_initial_registers(pid: pid_t, regs: &mut user_regs_struct) -> Result<()> 
         return Err(AsmTestError::Execution("无法设置子进程寄存器状态".to_string()));
     }
 
+    // 重置XMM/YMM寄存器
+    if let Err(e) = reset_xmm_ymm_registers(pid) {
+        eprintln!("[parent] 警告: 无法重置XMM/YMM寄存器: {}", e);
+        // 继续执行，即使XMM/YMM寄存器重置失败
+    }
+
+    Ok(())
+}
+
+fn reset_xmm_ymm_registers(pid: pid_t) -> Result<()> {
+    // 分配足够大的缓冲区来存储XSAVE状态
+    let bufsize = 4096;
+    let xstate_buffer = unsafe {
+        libc::malloc(bufsize)
+    };
+
+    if xstate_buffer.is_null() {
+        return Err(AsmTestError::Execution("无法分配XSAVE状态缓冲区".to_string()));
+    }
+
+    // 确保缓冲区被清零
+    unsafe {
+        libc::memset(xstate_buffer, 0, bufsize);
+    }
+
+    let mut iov = iovec {
+        iov_base: xstate_buffer,
+        iov_len: bufsize,
+    };
+
+    // 获取当前的XSAVE状态
+    let result = unsafe {
+        ptrace(PTRACE_GETREGSET, pid, NT_X86_XSTATE as *mut c_void, &mut iov as *mut iovec as *mut c_void)
+    };
+
+    if result == -1 {
+        unsafe { libc::free(xstate_buffer); }
+        return Err(AsmTestError::Execution("无法获取当前XMM寄存器状态".to_string()));
+    }
+
+    // 初始化XMM寄存器为零
+    // XSAVE格式: XMM寄存器通常在偏移0xA0处开始
+    if iov.iov_len >= 0xA0 + 16 * 16 {
+        let xmm_base = unsafe { (xstate_buffer as *mut u8).add(0xA0) };
+
+        // 将所有XMM寄存器清零
+        unsafe {
+            libc::memset(xmm_base as *mut libc::c_void, 0, 16 * 16);
+        }
+
+        // 设置xstate_bv标志位，表示SSE状态有效
+        if iov.iov_len >= 512 + 8 {
+            let xstate_hdr = unsafe { (xstate_buffer as *mut u8).add(512) as *mut u64 };
+            unsafe {
+                // 设置SSE状态位 (bit 1)
+                *xstate_hdr |= 1u64 << 1;
+            }
+        }
+
+        // 写回修改后的XSAVE状态
+        let result = unsafe {
+            ptrace(PTRACE_SETREGSET, pid, NT_X86_XSTATE as *mut c_void, &mut iov as *mut iovec as *mut c_void)
+        };
+
+        if result == -1 {
+            unsafe { libc::free(xstate_buffer); }
+            return Err(AsmTestError::Execution("无法设置XMM寄存器初始状态".to_string()));
+        }
+    }
+
+    unsafe { libc::free(xstate_buffer); }
     Ok(())
 }
 

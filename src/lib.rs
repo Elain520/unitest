@@ -216,3 +216,24 @@ impl Default for RegisterData {
         Self::new()
     }
 }
+
+/// XMM寄存器数据
+#[derive(Debug)]
+pub struct XmmRegisters {
+    pub xmm0: Option<Vec<String>>,
+    pub xmm1: Option<Vec<String>>,
+    pub xmm2: Option<Vec<String>>,
+    pub xmm3: Option<Vec<String>>,
+    pub xmm4: Option<Vec<String>>,
+    pub xmm5: Option<Vec<String>>,
+    pub xmm6: Option<Vec<String>>,
+    pub xmm7: Option<Vec<String>>,
+    pub xmm8: Option<Vec<String>>,
+    pub xmm9: Option<Vec<String>>,
+    pub xmm10: Option<Vec<String>>,
+    pub xmm11: Option<Vec<String>>,
+    pub xmm12: Option<Vec<String>>,
+    pub xmm13: Option<Vec<String>>,
+    pub xmm14: Option<Vec<String>>,
+    pub xmm15: Option<Vec<String>>,
+}
