@@ -17,6 +17,10 @@ pub struct AsmTestConfig {
     #[serde(rename = "RegData", skip_serializing_if = "Option::is_none")]
     pub reg_data: Option<RegisterData>,
 
+    /// 寄存器初始值（在输入文件中指定执行前的寄存器初始状态）
+    #[serde(rename = "RegInit", skip_serializing_if = "Option::is_none")]
+    pub reg_init: Option<RegisterData>,
+
     /// 执行模式
     #[serde(rename = "Mode", skip_serializing_if = "Option::is_none")]
     pub mode: Option<ExecutionMode>,
@@ -148,6 +152,7 @@ impl AsmTestConfig {
     pub fn new() -> Self {
         AsmTestConfig {
             reg_data: None,
+            reg_init: None,
             mode: None,
             memory_regions: None,
             memory_data: None,

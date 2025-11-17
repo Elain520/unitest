@@ -5,7 +5,7 @@
 use crate::elf::ElfInfo;
 use crate::error::{AsmTestError, Result};
 use libc::{c_void, fork, iovec, kill, mmap, munmap, pid_t, ptrace, raise, user_regs_struct, waitpid, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_CONT, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_TRACEME, SIGSTOP, SIGTRAP, WIFSTOPPED, WSTOPSIG};
-use x86_asm_test::{AsmTestConfig, MemorySize, RegisterData, XmmRegisters};
+use x86_asm_test::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData, XmmRegisters};
 
 /// 执行结果
 #[derive(Debug)]
@@ -345,6 +345,25 @@ fn parse_hex_address(address_str: &str) -> Result<u64> {
     }
 }
 
+/// 解析十六进制值字符串
+fn parse_hex_value(hex_str: &str) -> Result<u64> {
+    let trimmed = hex_str.trim();
+    if trimmed.is_empty() {
+        return Ok(0); // 空字符串返回0
+    }
+
+    // 处理"0x"前缀
+    let clean_str = if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        &trimmed[2..]
+    } else {
+        trimmed
+    };
+
+    // 解析十六进制字符串
+    u64::from_str_radix(clean_str, 16)
+        .map_err(|e| AsmTestError::Execution(format!("无法解析十六进制值 {}: {}", hex_str, e)))
+}
+
 unsafe fn dump_memory_region(memory: *mut c_void, address: u64, size: usize, max_bytes: usize) {
     if !cfg!(debug_assertions) {
         return;
@@ -447,7 +466,7 @@ fn execute_in_parent_process(pid: pid_t, _elf_info: &ElfInfo, _config: &AsmTestC
     if cfg!(debug_assertions) {
         eprintln!("[parent] 设置初始寄存器状态");
     }
-    if let Err(e) = set_initial_registers(pid, &mut regs) {
+    if let Err(e) = set_initial_registers(pid, &mut regs, _config) {
         // 杀死子进程
         unsafe { kill(pid, libc::SIGKILL) };
         return Err(e);
@@ -739,47 +758,6 @@ fn get_xmm_registers(pid: pid_t) -> Result<XmmRegisters> {
     Ok(xmm_registers)
 }
 
-/// 设置初始寄存器状态
-fn set_initial_registers(pid: pid_t, regs: &mut user_regs_struct) -> Result<()> {
-    // 清空寄存器
-    regs.rax = 0;
-    regs.rbx = 0;
-    regs.rcx = 0;
-    regs.rdx = 0;
-    regs.rsi = 0;
-    regs.rdi = 0;
-    regs.rbp = 0;
-    // 设置栈指针到栈顶，预留红区（128字节）并保持16字节对齐
-    let stack_top = 0xE0000000u64 + 16u64 * 4096u64; // 栈顶地址
-    let rsp_top = (stack_top - 128) & !0xFu64; // 预留红区并16字节对齐
-    regs.rsp = rsp_top;
-    regs.r8 = 0;
-    regs.r9 = 0;
-    regs.r10 = 0;
-    regs.r11 = 0;
-    regs.r12 = 0;
-    regs.r13 = 0;
-    regs.r14 = 0;
-    regs.r15 = 0;
-
-    // 设置标志寄存器
-    regs.eflags = 0x202; // 设置默认标志位
-
-    // 设置寄存器
-    let result = unsafe { ptrace(PTRACE_SETREGS, pid, std::ptr::null_mut::<c_void>(), regs as *mut user_regs_struct as *mut c_void) };
-    if result == -1 {
-        return Err(AsmTestError::Execution("无法设置子进程寄存器状态".to_string()));
-    }
-
-    // 重置XMM/YMM寄存器
-    if let Err(e) = reset_xmm_ymm_registers(pid) {
-        eprintln!("[parent] 警告: 无法重置XMM/YMM寄存器: {}", e);
-        // 继续执行，即使XMM/YMM寄存器重置失败
-    }
-
-    Ok(())
-}
-
 fn reset_xmm_ymm_registers(pid: pid_t) -> Result<()> {
     // 分配足够大的缓冲区来存储XSAVE状态
     let bufsize = 4096;
@@ -938,61 +916,103 @@ fn free_memory(address: *mut c_void, size: usize) -> Result<()> {
     Ok(())
 }
 
-pub fn format_register_data(register_data: &RegisterData) -> String {
+pub fn format_register_data(register_data: &RegisterData, is_32bit: bool) -> String {
     let mut output = String::new();
 
     // 格式化通用寄存器
     output.push_str("通用寄存器:\n");
-    if let Some(rax) = &register_data.rax {
-        output.push_str(&format!("  RAX: {}\n", rax));
-    }
-    if let Some(rcx) = &register_data.rcx {
-        output.push_str(&format!("  RCX: {}\n", rcx));
-    }
-    if let Some(rdx) = &register_data.rdx {
-        output.push_str(&format!("  RDX: {}\n", rdx));
-    }
-    if let Some(rbx) = &register_data.rbx {
-        output.push_str(&format!("  RBX: {}\n", rbx));
-    }
-    if let Some(rsp) = &register_data.rsp {
-        output.push_str(&format!("  RSP: {}\n", rsp));
-    }
-    if let Some(rbp) = &register_data.rbp {
-        output.push_str(&format!("  RBP: {}\n", rbp));
-    }
-    if let Some(rsi) = &register_data.rsi {
-        output.push_str(&format!("  RSI: {}\n", rsi));
-    }
-    if let Some(rdi) = &register_data.rdi {
-        output.push_str(&format!("  RDI: {}\n", rdi));
-    }
-    if let Some(rip) = &register_data.rip {
-        output.push_str(&format!("  RIP: {}\n", rip));
-    }
-    if let Some(r8) = &register_data.r8 {
-        output.push_str(&format!("  R8:  {}\n", r8));
-    }
-    if let Some(r9) = &register_data.r9 {
-        output.push_str(&format!("  R9:  {}\n", r9));
-    }
-    if let Some(r10) = &register_data.r10 {
-        output.push_str(&format!("  R10: {}\n", r10));
-    }
-    if let Some(r11) = &register_data.r11 {
-        output.push_str(&format!("  R11: {}\n", r11));
-    }
-    if let Some(r12) = &register_data.r12 {
-        output.push_str(&format!("  R12: {}\n", r12));
-    }
-    if let Some(r13) = &register_data.r13 {
-        output.push_str(&format!("  R13: {}\n", r13));
-    }
-    if let Some(r14) = &register_data.r14 {
-        output.push_str(&format!("  R14: {}\n", r14));
-    }
-    if let Some(r15) = &register_data.r15 {
-        output.push_str(&format!("  R15: {}\n", r15));
+    if is_32bit {
+        // 32位模式下显示32位寄存器名称
+        if let Some(rax) = &register_data.rax {
+            let eax_value = format_32bit_value(rax);
+            output.push_str(&format!("  EAX: {}\n", eax_value));
+        }
+        if let Some(rcx) = &register_data.rcx {
+            let ecx_value = format_32bit_value(rcx);
+            output.push_str(&format!("  ECX: {}\n", ecx_value));
+        }
+        if let Some(rdx) = &register_data.rdx {
+            let edx_value = format_32bit_value(rdx);
+            output.push_str(&format!("  EDX: {}\n", edx_value));
+        }
+        if let Some(rbx) = &register_data.rbx {
+            let ebx_value = format_32bit_value(rbx);
+            output.push_str(&format!("  EBX: {}\n", ebx_value));
+        }
+        if let Some(rsp) = &register_data.rsp {
+            let esp_value = format_32bit_value(rsp);
+            output.push_str(&format!("  ESP: {}\n", esp_value));
+        }
+        if let Some(rbp) = &register_data.rbp {
+            let ebp_value = format_32bit_value(rbp);
+            output.push_str(&format!("  EBP: {}\n", ebp_value));
+        }
+        if let Some(rsi) = &register_data.rsi {
+            let esi_value = format_32bit_value(rsi);
+            output.push_str(&format!("  ESI: {}\n", esi_value));
+        }
+        if let Some(rdi) = &register_data.rdi {
+            let edi_value = format_32bit_value(rdi);
+            output.push_str(&format!("  EDI: {}\n", edi_value));
+        }
+        if let Some(rip) = &register_data.rip {
+            let eip_value = format_32bit_value(rip);
+            output.push_str(&format!("  RIP: {}\n", eip_value));
+        }
+        // 32位模式下不显示R8-R15
+    } else {
+        // 64位模式下显示64位寄存器名称
+        if let Some(rax) = &register_data.rax {
+            output.push_str(&format!("  RAX: {}\n", rax));
+        }
+        if let Some(rcx) = &register_data.rcx {
+            output.push_str(&format!("  RCX: {}\n", rcx));
+        }
+        if let Some(rdx) = &register_data.rdx {
+            output.push_str(&format!("  RDX: {}\n", rdx));
+        }
+        if let Some(rbx) = &register_data.rbx {
+            output.push_str(&format!("  RBX: {}\n", rbx));
+        }
+        if let Some(rsp) = &register_data.rsp {
+            output.push_str(&format!("  RSP: {}\n", rsp));
+        }
+        if let Some(rbp) = &register_data.rbp {
+            output.push_str(&format!("  RBP: {}\n", rbp));
+        }
+        if let Some(rsi) = &register_data.rsi {
+            output.push_str(&format!("  RSI: {}\n", rsi));
+        }
+        if let Some(rdi) = &register_data.rdi {
+            output.push_str(&format!("  RDI: {}\n", rdi));
+        }
+        if let Some(r8) = &register_data.r8 {
+            output.push_str(&format!("  R8:  {}\n", r8));
+        }
+        if let Some(r9) = &register_data.r9 {
+            output.push_str(&format!("  R9:  {}\n", r9));
+        }
+        if let Some(r10) = &register_data.r10 {
+            output.push_str(&format!("  R10: {}\n", r10));
+        }
+        if let Some(r11) = &register_data.r11 {
+            output.push_str(&format!("  R11: {}\n", r11));
+        }
+        if let Some(r12) = &register_data.r12 {
+            output.push_str(&format!("  R12: {}\n", r12));
+        }
+        if let Some(r13) = &register_data.r13 {
+            output.push_str(&format!("  R13: {}\n", r13));
+        }
+        if let Some(r14) = &register_data.r14 {
+            output.push_str(&format!("  R14: {}\n", r14));
+        }
+        if let Some(r15) = &register_data.r15 {
+            output.push_str(&format!("  R15: {}\n", r15));
+        }
+        if let Some(rip) = &register_data.rip {
+            output.push_str(&format!("  RIP: {}\n", rip));
+        }
     }
 
     // 格式化XMM/YMM寄存器
@@ -1005,14 +1025,16 @@ pub fn format_register_data(register_data: &RegisterData) -> String {
     format_xmm_register("XMM5", &register_data.xmm5, &mut output);
     format_xmm_register("XMM6", &register_data.xmm6, &mut output);
     format_xmm_register("XMM7", &register_data.xmm7, &mut output);
-    format_xmm_register("XMM8", &register_data.xmm8, &mut output);
-    format_xmm_register("XMM9", &register_data.xmm9, &mut output);
-    format_xmm_register("XMM10", &register_data.xmm10, &mut output);
-    format_xmm_register("XMM11", &register_data.xmm11, &mut output);
-    format_xmm_register("XMM12", &register_data.xmm12, &mut output);
-    format_xmm_register("XMM13", &register_data.xmm13, &mut output);
-    format_xmm_register("XMM14", &register_data.xmm14, &mut output);
-    format_xmm_register("XMM15", &register_data.xmm15, &mut output);
+    if !is_32bit {
+        format_xmm_register("XMM8", &register_data.xmm8, &mut output);
+        format_xmm_register("XMM9", &register_data.xmm9, &mut output);
+        format_xmm_register("XMM10", &register_data.xmm10, &mut output);
+        format_xmm_register("XMM11", &register_data.xmm11, &mut output);
+        format_xmm_register("XMM12", &register_data.xmm12, &mut output);
+        format_xmm_register("XMM13", &register_data.xmm13, &mut output);
+        format_xmm_register("XMM14", &register_data.xmm14, &mut output);
+        format_xmm_register("XMM15", &register_data.xmm15, &mut output);
+    }
 
     // 格式化标志寄存器
     if let Some(flags) = &register_data.flags {
@@ -1020,6 +1042,19 @@ pub fn format_register_data(register_data: &RegisterData) -> String {
     }
 
     output
+}
+
+/// 格式化32位寄存器值
+fn format_32bit_value(value: &str) -> String {
+    if let Some(stripped) = value.strip_prefix("0x") {
+        if stripped.len() > 8 {
+            format!("0x{}", &stripped[stripped.len() - 8..])
+        } else {
+            value.to_string()
+        }
+    } else {
+        value.to_string()
+    }
 }
 
 /// 格式化单个XMM寄存器
@@ -1071,4 +1106,238 @@ fn format_flags(flags: u64) -> String {
 
     format!("0x{:08x} [CF:{} PF:{} AF:{} ZF:{} SF:{} TF:{} IF:{} DF:{} OF:{} IOPL:{} NT:{} RF:{} VM:{} AC:{} VIF:{} VIP:{} ID:{}]",
             flags, cf, pf, af, zf, sf, tf, if_flag, df, of, iopl, nt, rf, vm, ac, vif, vip, id)
+}
+
+/// 设置初始寄存器状态
+fn set_initial_registers(pid: pid_t, regs: &mut user_regs_struct, config: &AsmTestConfig) -> Result<()> {
+    // 检查是否为32位模式
+    let is_32bit = config.mode.as_ref().map(|m| matches!(m, ExecutionMode::Bit32)).unwrap_or(false);
+
+    // 根据RegInit设置初始寄存器值，如果没有则默认为0
+    if let Some(ref reg_init) = config.reg_init {
+        if is_32bit {
+            // 32位模式下只设置32位寄存器
+            regs.rax = (regs.rax & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rax).unwrap_or(0) & 0xFFFFFFFF);
+            regs.rbx = (regs.rbx & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rbx).unwrap_or(0) & 0xFFFFFFFF);
+            regs.rcx = (regs.rcx & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rcx).unwrap_or(0) & 0xFFFFFFFF);
+            regs.rdx = (regs.rdx & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rdx).unwrap_or(0) & 0xFFFFFFFF);
+            regs.rsi = (regs.rsi & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rsi).unwrap_or(0) & 0xFFFFFFFF);
+            regs.rdi = (regs.rdi & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rdi).unwrap_or(0) & 0xFFFFFFFF);
+            regs.rbp = (regs.rbp & 0xFFFFFFFF00000000) | (parse_register_value(&reg_init.rbp).unwrap_or(0) & 0xFFFFFFFF);
+            // 栈指针特殊处理，即使有RegInit也使用固定值
+            let stack_top = 0xE0000000u64 + 16u64 * 4096u64; // 栈顶地址
+            let rsp_top = (stack_top - 128) & !0xFu64; // 预留红区并16字节对齐
+            regs.rsp = (regs.rsp & 0xFFFFFFFF00000000) | (rsp_top & 0xFFFFFFFF);
+            regs.r8 = 0;  // 32位模式下R8-R15应为0
+            regs.r9 = 0;
+            regs.r10 = 0;
+            regs.r11 = 0;
+            regs.r12 = 0;
+            regs.r13 = 0;
+            regs.r14 = 0;
+            regs.r15 = 0;
+        } else {
+            // 64位模式下设置完整64位寄存器
+            regs.rax = parse_register_value(&reg_init.rax).unwrap_or(0);
+            regs.rbx = parse_register_value(&reg_init.rbx).unwrap_or(0);
+            regs.rcx = parse_register_value(&reg_init.rcx).unwrap_or(0);
+            regs.rdx = parse_register_value(&reg_init.rdx).unwrap_or(0);
+            regs.rsi = parse_register_value(&reg_init.rsi).unwrap_or(0);
+            regs.rdi = parse_register_value(&reg_init.rdi).unwrap_or(0);
+            regs.rbp = parse_register_value(&reg_init.rbp).unwrap_or(0);
+            // 栈指针特殊处理，即使有RegInit也使用固定值
+            let stack_top = 0xE0000000u64 + 16u64 * 4096u64; // 栈顶地址
+            let rsp_top = (stack_top - 128) & !0xFu64; // 预留红区并16字节对齐
+            regs.rsp = rsp_top;
+            regs.r8 = parse_register_value(&reg_init.r8).unwrap_or(0);
+            regs.r9 = parse_register_value(&reg_init.r9).unwrap_or(0);
+            regs.r10 = parse_register_value(&reg_init.r10).unwrap_or(0);
+            regs.r11 = parse_register_value(&reg_init.r11).unwrap_or(0);
+            regs.r12 = parse_register_value(&reg_init.r12).unwrap_or(0);
+            regs.r13 = parse_register_value(&reg_init.r13).unwrap_or(0);
+            regs.r14 = parse_register_value(&reg_init.r14).unwrap_or(0);
+            regs.r15 = parse_register_value(&reg_init.r15).unwrap_or(0);
+        }
+    } else {
+        if is_32bit {
+            regs.rax &= 0xFFFFFFFF00000000;
+            regs.rbx &= 0xFFFFFFFF00000000;
+            regs.rcx &= 0xFFFFFFFF00000000;
+            regs.rdx &= 0xFFFFFFFF00000000;
+            regs.rsi &= 0xFFFFFFFF00000000;
+            regs.rdi &= 0xFFFFFFFF00000000;
+            regs.rbp &= 0xFFFFFFFF00000000;
+            let stack_top = 0xE0000000u64 + 16u64 * 4096u64; // 栈顶地址
+            let rsp_top = (stack_top - 128) & !0xFu64; // 预留红区并16字节对齐
+            regs.rsp = (regs.rsp & 0xFFFFFFFF00000000) | (rsp_top & 0xFFFFFFFF);
+            regs.r8 = 0;
+            regs.r9 = 0;
+            regs.r10 = 0;
+            regs.r11 = 0;
+            regs.r12 = 0;
+            regs.r13 = 0;
+            regs.r14 = 0;
+            regs.r15 = 0;
+        } else {
+            // 默认清空寄存器
+            regs.rax = 0;
+            regs.rbx = 0;
+            regs.rcx = 0;
+            regs.rdx = 0;
+            regs.rsi = 0;
+            regs.rdi = 0;
+            regs.rbp = 0;
+            let stack_top = 0xE0000000u64 + 16u64 * 4096u64; // 栈顶地址
+            let rsp_top = (stack_top - 128) & !0xFu64; // 预留红区并16字节对齐
+            regs.rsp = rsp_top;
+            regs.r8 = 0;
+            regs.r9 = 0;
+            regs.r10 = 0;
+            regs.r11 = 0;
+            regs.r12 = 0;
+            regs.r13 = 0;
+            regs.r14 = 0;
+            regs.r15 = 0;
+        }
+    }
+
+    // 设置标志寄存器
+    regs.eflags = 0x202; // 设置默认标志位
+
+    // 设置寄存器
+    let result = unsafe { ptrace(PTRACE_SETREGS, pid, std::ptr::null_mut::<c_void>(), regs as *mut user_regs_struct as *mut c_void) };
+    if result == -1 {
+        return Err(AsmTestError::Execution("无法设置子进程寄存器状态".to_string()));
+    }
+
+    // 设置XMM寄存器初始状态
+    if let Err(e) = set_xmm_registers(pid, config) {
+        eprintln!("警告: 无法设置XMM寄存器初始状态: {}", e);
+        // 不返回错误，因为XMM寄存器设置失败不应该导致整个执行失败
+    }
+
+    Ok(())
+}
+
+/// 解析寄存器值字符串
+fn parse_register_value(value: &Option<String>) -> Option<u64> {
+    if let Some(val_str) = value {
+        let trimmed = val_str.trim();
+        if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+            u64::from_str_radix(&trimmed[2..], 16).ok()
+        } else {
+            trimmed.parse::<u64>().ok()
+        }
+    } else {
+        None
+    }
+}
+
+/// 设置XMM寄存器初始状态
+fn set_xmm_registers(pid: pid_t, config: &AsmTestConfig) -> Result<()> {
+    // 分配足够大的缓冲区来存储XSAVE状态
+    let bufsize = 4096;
+    let xstate_buffer = unsafe {
+        libc::malloc(bufsize)
+    };
+
+    if xstate_buffer.is_null() {
+        return Err(AsmTestError::Execution("无法分配XSAVE状态缓冲区".to_string()));
+    }
+
+    // 确保缓冲区被清零
+    unsafe {
+        libc::memset(xstate_buffer, 0, bufsize);
+    }
+
+    let mut iov = iovec {
+        iov_base: xstate_buffer,
+        iov_len: bufsize,
+    };
+
+    // 获取当前的XSAVE状态
+    let result = unsafe {
+        ptrace(PTRACE_GETREGSET, pid, NT_X86_XSTATE as *mut c_void, &mut iov as *mut iovec as *mut c_void)
+    };
+
+    // 即使获取失败，我们也使用已清零的缓冲区
+    if result == -1 {
+        // 如果获取失败，继续使用已清零的缓冲区
+        eprintln!("警告: 无法获取当前XMM寄存器状态，使用默认初始化");
+    }
+
+    // 根据RegInit设置XMM寄存器初始值，如果没有则默认为0
+    if let Some(ref reg_init) = config.reg_init {
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 0, &reg_init.xmm0);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 1, &reg_init.xmm1);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 2, &reg_init.xmm2);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 3, &reg_init.xmm3);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 4, &reg_init.xmm4);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 5, &reg_init.xmm5);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 6, &reg_init.xmm6);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 7, &reg_init.xmm7);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 8, &reg_init.xmm8);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 9, &reg_init.xmm9);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 10, &reg_init.xmm10);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 11, &reg_init.xmm11);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 12, &reg_init.xmm12);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 13, &reg_init.xmm13);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 14, &reg_init.xmm14);
+        set_xmm_register_value(xstate_buffer, iov.iov_len, 15, &reg_init.xmm15);
+    }
+    // 如果没有RegInit，XMM寄存器已经初始化为0了
+
+    // 设置xstate_bv标志位，表示SSE状态有效
+    if iov.iov_len >= 512 + 8 {
+        let xstate_hdr = unsafe { (xstate_buffer as *mut u8).add(512) as *mut u64 };
+        unsafe {
+            // 设置SSE状态位 (bit 1)
+            *xstate_hdr |= 1u64 << 1;
+        }
+    }
+
+    // 写回修改后的XSAVE状态
+    let result = unsafe {
+        ptrace(PTRACE_SETREGSET, pid, NT_X86_XSTATE as *mut c_void, &mut iov as *mut iovec as *mut c_void)
+    };
+
+    unsafe { libc::free(xstate_buffer); }
+
+    if result == -1 {
+        return Err(AsmTestError::Execution("无法设置XMM寄存器初始状态".to_string()));
+    }
+
+    Ok(())
+}
+
+/// 设置单个XMM寄存器的值
+fn set_xmm_register_value(buffer: *mut c_void, buffer_len: usize, index: usize, value: &Option<Vec<String>>) {
+    // XSAVE格式: XMM寄存器通常在偏移0xA0处开始
+    if buffer_len >= 0xA0 + (index + 1) * 16 {
+        let xmm_base = unsafe { (buffer as *mut u8).add(0xA0) };
+        let xmm_ptr = unsafe { xmm_base.add(index * 16) };
+
+        // 首先将XMM寄存器清零
+        unsafe {
+            libc::memset(xmm_ptr as *mut libc::c_void, 0, 16);
+        }
+
+        if let Some(values) = value {
+            // 写入XMM寄存器值 (128位 = 16字节)
+            for (i, val_str) in values.iter().enumerate() {
+                if i >= 2 {
+                    break; // XMM寄存器只有128位，即2个64位值
+                }
+
+                // 只有非空字符串才尝试解析
+                if !val_str.trim().is_empty() {
+                    if let Ok(val) = parse_hex_value(val_str) {
+                        let data_ptr = unsafe { (xmm_ptr as *mut u64).add(i) };
+                        unsafe { *data_ptr = val; }
+                    }
+                }
+            }
+        }
+        // 如果没有指定值或值为空，保持为0（已初始化）
+    }
 }

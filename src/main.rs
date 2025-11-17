@@ -16,6 +16,7 @@ use elf::parse_elf_file;
 use linker::link_with_system_linker;
 use parser::parse_asm_test_file;
 use executor::format_register_data;
+use x86_asm_test::ExecutionMode;
 
 fn main() -> Result<()> {
     // 解析命令行参数
@@ -106,8 +107,9 @@ fn execute_test(cli: &Cli) -> Result<()> {
                                                             if !cli.quiet {
                                                                 println!("成功执行ELF文件");
                                                                 if let Some(ref register_data) = execute_result.register_data {
+                                                                    let is_32bit = asm_test_file.config.mode.as_ref().map(|m| matches!(m, ExecutionMode::Bit32)).unwrap_or(false);
                                                                     println!("寄存器状态: {:?}", register_data);
-                                                                    println!("{}", format_register_data(register_data));
+                                                                    println!("{}", format_register_data(register_data, is_32bit));
                                                                 }
                                                             }
                                                         } else {

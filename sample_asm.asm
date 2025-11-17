@@ -3,6 +3,9 @@
     "RegData": {
         "RDX": "0xc"
     },
+    "RegInit": {
+        "RAX": "0x7FFFFFFFFFFFFFFF"
+    },
     "MemoryRegions": {
         "0x10000000": 4096,
         "0x20000000": "0x2000"
@@ -19,9 +22,9 @@
 ;shr rdx, 4
 
 ;2
-mov rax,0xdeadbeefcafebabe
-push rax
-pop rdx
+;mov rax,0xdeadbeefcafebabe
+;push rax
+;pop rdx
 
 ;3
 ;mov rax,0x4040000040400000
@@ -33,4 +36,4 @@ pop rdx
 
 ;4
 ;mov rax, 0x7FFFFFFFFFFFFFFF
-;add rax, 0x1
+add rax, 0x1
