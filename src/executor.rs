@@ -659,37 +659,96 @@ fn get_xmm_registers(pid: pid_t) -> Result<XmmRegisters> {
     if iov.iov_len >= 0xA0 + 16 * 16 {
         let xmm_base = unsafe { (xstate_buffer as *mut u8).add(0xA0) };
 
-        // 解析每个XMM寄存器 (128位 = 16字节)
-        for i in 0..16 {
-            let xmm_ptr = unsafe { xmm_base.add(i * 16) };
-            let mut xmm_data = Vec::new();
+        // 检查是否有AVX状态 (YMM寄存器)
+         let has_avx = if iov.iov_len >= 512 + 8 {
+             let xstate_hdr = unsafe { (xstate_buffer as *mut u8).add(512) as *const u64 };
+             let xstate_bv = unsafe { *xstate_hdr };
+             (xstate_bv & (1u64 << 2)) != 0 // AVX状态位 (bit 2)
+         } else {
+             false
+         };
 
-            // 以64位为单位读取XMM寄存器数据
-            for j in 0..2 {
-                let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
-                let data = unsafe { *data_ptr };
-                xmm_data.push(format!("0x{:016x}", data));
-            }
+        if has_avx && iov.iov_len >= 0x240 + 16 * 16 {
+             // 读取完整的YMM寄存器 (256位 = 32字节)
+             let ymmh_base = unsafe { (xstate_buffer as *mut u8).add(0x240) };
 
-            match i {
-                0 => xmm_registers.xmm0 = Some(xmm_data),
-                1 => xmm_registers.xmm1 = Some(xmm_data),
-                2 => xmm_registers.xmm2 = Some(xmm_data),
-                3 => xmm_registers.xmm3 = Some(xmm_data),
-                4 => xmm_registers.xmm4 = Some(xmm_data),
-                5 => xmm_registers.xmm5 = Some(xmm_data),
-                6 => xmm_registers.xmm6 = Some(xmm_data),
-                7 => xmm_registers.xmm7 = Some(xmm_data),
-                8 => xmm_registers.xmm8 = Some(xmm_data),
-                9 => xmm_registers.xmm9 = Some(xmm_data),
-                10 => xmm_registers.xmm10 = Some(xmm_data),
-                11 => xmm_registers.xmm11 = Some(xmm_data),
-                12 => xmm_registers.xmm12 = Some(xmm_data),
-                13 => xmm_registers.xmm13 = Some(xmm_data),
-                14 => xmm_registers.xmm14 = Some(xmm_data),
-                15 => xmm_registers.xmm15 = Some(xmm_data),
-                _ => {}
-            }
+             // 解析每个YMM寄存器 (256位 = 32字节)
+             for i in 0..16 {
+                 let xmm_ptr = unsafe { xmm_base.add(i * 16) };
+                 let ymmh_ptr = unsafe { ymmh_base.add(i * 16) };
+                 let mut ymm_data = Vec::new();
+
+                 // 读取XMM低128位
+                 for j in 0..2 {
+                     let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
+                     let data = unsafe { *data_ptr };
+                     ymm_data.push(format!("0x{:016x}", data));
+                 }
+
+                 // 读取YMM高128位
+                 for j in 0..2 {
+                     let data_ptr = unsafe { (ymmh_ptr as *const u64).add(j) };
+                     let data = unsafe { *data_ptr };
+                     ymm_data.push(format!("0x{:016x}", data));
+                 }
+
+                 match i {
+                     0 => xmm_registers.xmm0 = Some(ymm_data),
+                     1 => xmm_registers.xmm1 = Some(ymm_data),
+                     2 => xmm_registers.xmm2 = Some(ymm_data),
+                     3 => xmm_registers.xmm3 = Some(ymm_data),
+                     4 => xmm_registers.xmm4 = Some(ymm_data),
+                     5 => xmm_registers.xmm5 = Some(ymm_data),
+                     6 => xmm_registers.xmm6 = Some(ymm_data),
+                     7 => xmm_registers.xmm7 = Some(ymm_data),
+                     8 => xmm_registers.xmm8 = Some(ymm_data),
+                     9 => xmm_registers.xmm9 = Some(ymm_data),
+                     10 => xmm_registers.xmm10 = Some(ymm_data),
+                     11 => xmm_registers.xmm11 = Some(ymm_data),
+                     12 => xmm_registers.xmm12 = Some(ymm_data),
+                     13 => xmm_registers.xmm13 = Some(ymm_data),
+                     14 => xmm_registers.xmm14 = Some(ymm_data),
+                     15 => xmm_registers.xmm15 = Some(ymm_data),
+                     _ => {}
+                 }
+             }
+         } else {
+             // 只读取XMM寄存器 (128位 = 16字节)
+             for i in 0..16 {
+                 let xmm_ptr = unsafe { xmm_base.add(i * 16) };
+                 let mut xmm_data = Vec::new();
+
+                 // 读取XMM寄存器 (128位 = 16字节)
+                 for j in 0..2 {
+                     let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
+                     let data = unsafe { *data_ptr };
+                     xmm_data.push(format!("0x{:016x}", data));
+                 }
+
+                 // 填充高128位为0（YMM高部分）
+                 xmm_data.push(format!("0x{:016x}", 0u64));
+                 xmm_data.push(format!("0x{:016x}", 0u64));
+
+                 match i {
+                     0 => xmm_registers.xmm0 = Some(xmm_data),
+                     1 => xmm_registers.xmm1 = Some(xmm_data),
+                     2 => xmm_registers.xmm2 = Some(xmm_data),
+                     3 => xmm_registers.xmm3 = Some(xmm_data),
+                     4 => xmm_registers.xmm4 = Some(xmm_data),
+                     5 => xmm_registers.xmm5 = Some(xmm_data),
+                     6 => xmm_registers.xmm6 = Some(xmm_data),
+                     7 => xmm_registers.xmm7 = Some(xmm_data),
+                     8 => xmm_registers.xmm8 = Some(xmm_data),
+                     9 => xmm_registers.xmm9 = Some(xmm_data),
+                     10 => xmm_registers.xmm10 = Some(xmm_data),
+                     11 => xmm_registers.xmm11 = Some(xmm_data),
+                     12 => xmm_registers.xmm12 = Some(xmm_data),
+                     13 => xmm_registers.xmm13 = Some(xmm_data),
+                     14 => xmm_registers.xmm14 = Some(xmm_data),
+                     15 => xmm_registers.xmm15 = Some(xmm_data),
+                     _ => {}
+                 }
+             }
         }
     }
 
