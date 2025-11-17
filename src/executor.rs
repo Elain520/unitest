@@ -567,24 +567,24 @@ fn get_registers(pid: pid_t) -> Result<RegisterData> {
     Ok(register_data)
 }
 
-fn format_flags(flags: u64) -> String {
-    let cf = (flags >> 0) & 1;  // 进位标志
-    let pf = (flags >> 2) & 1;  // 奇偶标志
-    let af = (flags >> 4) & 1;  // 辅助进位标志
-    let zf = (flags >> 6) & 1;  // 零标志
-    let sf = (flags >> 7) & 1;  // 符号标志
-    let tf = (flags >> 8) & 1;  // 陷阱标志
-    let if_flag = (flags >> 9) & 1;  // 中断允许标志
-    let df = (flags >> 10) & 1; // 方向标志
-    let of = (flags >> 11) & 1; // 溢出标志
-
-    let flags_desc = format!(
-        "CF:{}(进位) PF:{}(奇偶) AF:{}(辅助进位) ZF:{}(零) SF:{}(符号) TF:{}(陷阱) IF:{}(中断) DF:{}(方向) OF:{}(溢出)",
-        cf, pf, af, zf, sf, tf, if_flag, df, of
-    );
-
-    format!("0x{:08x} [{}]", flags, flags_desc)
-}
+// fn format_flags(flags: u64) -> String {
+//     let cf = (flags >> 0) & 1;  // 进位标志
+//     let pf = (flags >> 2) & 1;  // 奇偶标志
+//     let af = (flags >> 4) & 1;  // 辅助进位标志
+//     let zf = (flags >> 6) & 1;  // 零标志
+//     let sf = (flags >> 7) & 1;  // 符号标志
+//     let tf = (flags >> 8) & 1;  // 陷阱标志
+//     let if_flag = (flags >> 9) & 1;  // 中断允许标志
+//     let df = (flags >> 10) & 1; // 方向标志
+//     let of = (flags >> 11) & 1; // 溢出标志
+//
+//     let flags_desc = format!(
+//         "CF:{}(进位) PF:{}(奇偶) AF:{}(辅助进位) ZF:{}(零) SF:{}(符号) TF:{}(陷阱) IF:{}(中断) DF:{}(方向) OF:{}(溢出)",
+//         cf, pf, af, zf, sf, tf, if_flag, df, of
+//     );
+//
+//     format!("0x{:08x} [{}]", flags, flags_desc)
+// }
 
 /// 使用ptrace获取XMM寄存器状态
 fn get_xmm_registers(pid: pid_t) -> Result<XmmRegisters> {
@@ -643,95 +643,95 @@ fn get_xmm_registers(pid: pid_t) -> Result<XmmRegisters> {
         let xmm_base = unsafe { (xstate_buffer as *mut u8).add(0xA0) };
 
         // 检查是否有AVX状态 (YMM寄存器)
-         let has_avx = if iov.iov_len >= 512 + 8 {
-             let xstate_hdr = unsafe { (xstate_buffer as *mut u8).add(512) as *const u64 };
-             let xstate_bv = unsafe { *xstate_hdr };
-             (xstate_bv & (1u64 << 2)) != 0 // AVX状态位 (bit 2)
-         } else {
-             false
-         };
+        let has_avx = if iov.iov_len >= 512 + 8 {
+            let xstate_hdr = unsafe { (xstate_buffer as *mut u8).add(512) as *const u64 };
+            let xstate_bv = unsafe { *xstate_hdr };
+            (xstate_bv & (1u64 << 2)) != 0 // AVX状态位 (bit 2)
+        } else {
+            false
+        };
 
         if has_avx && iov.iov_len >= 0x240 + 16 * 16 {
-             // 读取完整的YMM寄存器 (256位 = 32字节)
-             let ymmh_base = unsafe { (xstate_buffer as *mut u8).add(0x240) };
+            // 读取完整的YMM寄存器 (256位 = 32字节)
+            let ymmh_base = unsafe { (xstate_buffer as *mut u8).add(0x240) };
 
-             // 解析每个YMM寄存器 (256位 = 32字节)
-             for i in 0..16 {
-                 let xmm_ptr = unsafe { xmm_base.add(i * 16) };
-                 let ymmh_ptr = unsafe { ymmh_base.add(i * 16) };
-                 let mut ymm_data = Vec::new();
+            // 解析每个YMM寄存器 (256位 = 32字节)
+            for i in 0..16 {
+                let xmm_ptr = unsafe { xmm_base.add(i * 16) };
+                let ymmh_ptr = unsafe { ymmh_base.add(i * 16) };
+                let mut ymm_data = Vec::new();
 
-                 // 读取XMM低128位
-                 for j in 0..2 {
-                     let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
-                     let data = unsafe { *data_ptr };
-                     ymm_data.push(format!("0x{:016x}", data));
-                 }
+                // 读取XMM低128位
+                for j in 0..2 {
+                    let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
+                    let data = unsafe { *data_ptr };
+                    ymm_data.push(format!("0x{:016x}", data));
+                }
 
-                 // 读取YMM高128位
-                 for j in 0..2 {
-                     let data_ptr = unsafe { (ymmh_ptr as *const u64).add(j) };
-                     let data = unsafe { *data_ptr };
-                     ymm_data.push(format!("0x{:016x}", data));
-                 }
+                // 读取YMM高128位
+                for j in 0..2 {
+                    let data_ptr = unsafe { (ymmh_ptr as *const u64).add(j) };
+                    let data = unsafe { *data_ptr };
+                    ymm_data.push(format!("0x{:016x}", data));
+                }
 
-                 match i {
-                     0 => xmm_registers.xmm0 = Some(ymm_data),
-                     1 => xmm_registers.xmm1 = Some(ymm_data),
-                     2 => xmm_registers.xmm2 = Some(ymm_data),
-                     3 => xmm_registers.xmm3 = Some(ymm_data),
-                     4 => xmm_registers.xmm4 = Some(ymm_data),
-                     5 => xmm_registers.xmm5 = Some(ymm_data),
-                     6 => xmm_registers.xmm6 = Some(ymm_data),
-                     7 => xmm_registers.xmm7 = Some(ymm_data),
-                     8 => xmm_registers.xmm8 = Some(ymm_data),
-                     9 => xmm_registers.xmm9 = Some(ymm_data),
-                     10 => xmm_registers.xmm10 = Some(ymm_data),
-                     11 => xmm_registers.xmm11 = Some(ymm_data),
-                     12 => xmm_registers.xmm12 = Some(ymm_data),
-                     13 => xmm_registers.xmm13 = Some(ymm_data),
-                     14 => xmm_registers.xmm14 = Some(ymm_data),
-                     15 => xmm_registers.xmm15 = Some(ymm_data),
-                     _ => {}
-                 }
-             }
-         } else {
-             // 只读取XMM寄存器 (128位 = 16字节)
-             for i in 0..16 {
-                 let xmm_ptr = unsafe { xmm_base.add(i * 16) };
-                 let mut xmm_data = Vec::new();
+                match i {
+                    0 => xmm_registers.xmm0 = Some(ymm_data),
+                    1 => xmm_registers.xmm1 = Some(ymm_data),
+                    2 => xmm_registers.xmm2 = Some(ymm_data),
+                    3 => xmm_registers.xmm3 = Some(ymm_data),
+                    4 => xmm_registers.xmm4 = Some(ymm_data),
+                    5 => xmm_registers.xmm5 = Some(ymm_data),
+                    6 => xmm_registers.xmm6 = Some(ymm_data),
+                    7 => xmm_registers.xmm7 = Some(ymm_data),
+                    8 => xmm_registers.xmm8 = Some(ymm_data),
+                    9 => xmm_registers.xmm9 = Some(ymm_data),
+                    10 => xmm_registers.xmm10 = Some(ymm_data),
+                    11 => xmm_registers.xmm11 = Some(ymm_data),
+                    12 => xmm_registers.xmm12 = Some(ymm_data),
+                    13 => xmm_registers.xmm13 = Some(ymm_data),
+                    14 => xmm_registers.xmm14 = Some(ymm_data),
+                    15 => xmm_registers.xmm15 = Some(ymm_data),
+                    _ => {}
+                }
+            }
+        } else {
+            // 只读取XMM寄存器 (128位 = 16字节)
+            for i in 0..16 {
+                let xmm_ptr = unsafe { xmm_base.add(i * 16) };
+                let mut xmm_data = Vec::new();
 
-                 // 读取XMM寄存器 (128位 = 16字节)
-                 for j in 0..2 {
-                     let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
-                     let data = unsafe { *data_ptr };
-                     xmm_data.push(format!("0x{:016x}", data));
-                 }
+                // 读取XMM寄存器 (128位 = 16字节)
+                for j in 0..2 {
+                    let data_ptr = unsafe { (xmm_ptr as *const u64).add(j) };
+                    let data = unsafe { *data_ptr };
+                    xmm_data.push(format!("0x{:016x}", data));
+                }
 
-                 // 填充高128位为0（YMM高部分）
-                 xmm_data.push(format!("0x{:016x}", 0u64));
-                 xmm_data.push(format!("0x{:016x}", 0u64));
+                // 填充高128位为0（YMM高部分）
+                xmm_data.push(format!("0x{:016x}", 0u64));
+                xmm_data.push(format!("0x{:016x}", 0u64));
 
-                 match i {
-                     0 => xmm_registers.xmm0 = Some(xmm_data),
-                     1 => xmm_registers.xmm1 = Some(xmm_data),
-                     2 => xmm_registers.xmm2 = Some(xmm_data),
-                     3 => xmm_registers.xmm3 = Some(xmm_data),
-                     4 => xmm_registers.xmm4 = Some(xmm_data),
-                     5 => xmm_registers.xmm5 = Some(xmm_data),
-                     6 => xmm_registers.xmm6 = Some(xmm_data),
-                     7 => xmm_registers.xmm7 = Some(xmm_data),
-                     8 => xmm_registers.xmm8 = Some(xmm_data),
-                     9 => xmm_registers.xmm9 = Some(xmm_data),
-                     10 => xmm_registers.xmm10 = Some(xmm_data),
-                     11 => xmm_registers.xmm11 = Some(xmm_data),
-                     12 => xmm_registers.xmm12 = Some(xmm_data),
-                     13 => xmm_registers.xmm13 = Some(xmm_data),
-                     14 => xmm_registers.xmm14 = Some(xmm_data),
-                     15 => xmm_registers.xmm15 = Some(xmm_data),
-                     _ => {}
-                 }
-             }
+                match i {
+                    0 => xmm_registers.xmm0 = Some(xmm_data),
+                    1 => xmm_registers.xmm1 = Some(xmm_data),
+                    2 => xmm_registers.xmm2 = Some(xmm_data),
+                    3 => xmm_registers.xmm3 = Some(xmm_data),
+                    4 => xmm_registers.xmm4 = Some(xmm_data),
+                    5 => xmm_registers.xmm5 = Some(xmm_data),
+                    6 => xmm_registers.xmm6 = Some(xmm_data),
+                    7 => xmm_registers.xmm7 = Some(xmm_data),
+                    8 => xmm_registers.xmm8 = Some(xmm_data),
+                    9 => xmm_registers.xmm9 = Some(xmm_data),
+                    10 => xmm_registers.xmm10 = Some(xmm_data),
+                    11 => xmm_registers.xmm11 = Some(xmm_data),
+                    12 => xmm_registers.xmm12 = Some(xmm_data),
+                    13 => xmm_registers.xmm13 = Some(xmm_data),
+                    14 => xmm_registers.xmm14 = Some(xmm_data),
+                    15 => xmm_registers.xmm15 = Some(xmm_data),
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -936,4 +936,139 @@ fn free_memory(address: *mut c_void, size: usize) -> Result<()> {
         return Err(AsmTestError::MemoryMap("无法释放内存".to_string()));
     }
     Ok(())
+}
+
+pub fn format_register_data(register_data: &RegisterData) -> String {
+    let mut output = String::new();
+
+    // 格式化通用寄存器
+    output.push_str("通用寄存器:\n");
+    if let Some(rax) = &register_data.rax {
+        output.push_str(&format!("  RAX: {}\n", rax));
+    }
+    if let Some(rcx) = &register_data.rcx {
+        output.push_str(&format!("  RCX: {}\n", rcx));
+    }
+    if let Some(rdx) = &register_data.rdx {
+        output.push_str(&format!("  RDX: {}\n", rdx));
+    }
+    if let Some(rbx) = &register_data.rbx {
+        output.push_str(&format!("  RBX: {}\n", rbx));
+    }
+    if let Some(rsp) = &register_data.rsp {
+        output.push_str(&format!("  RSP: {}\n", rsp));
+    }
+    if let Some(rbp) = &register_data.rbp {
+        output.push_str(&format!("  RBP: {}\n", rbp));
+    }
+    if let Some(rsi) = &register_data.rsi {
+        output.push_str(&format!("  RSI: {}\n", rsi));
+    }
+    if let Some(rdi) = &register_data.rdi {
+        output.push_str(&format!("  RDI: {}\n", rdi));
+    }
+    if let Some(rip) = &register_data.rip {
+        output.push_str(&format!("  RIP: {}\n", rip));
+    }
+    if let Some(r8) = &register_data.r8 {
+        output.push_str(&format!("  R8:  {}\n", r8));
+    }
+    if let Some(r9) = &register_data.r9 {
+        output.push_str(&format!("  R9:  {}\n", r9));
+    }
+    if let Some(r10) = &register_data.r10 {
+        output.push_str(&format!("  R10: {}\n", r10));
+    }
+    if let Some(r11) = &register_data.r11 {
+        output.push_str(&format!("  R11: {}\n", r11));
+    }
+    if let Some(r12) = &register_data.r12 {
+        output.push_str(&format!("  R12: {}\n", r12));
+    }
+    if let Some(r13) = &register_data.r13 {
+        output.push_str(&format!("  R13: {}\n", r13));
+    }
+    if let Some(r14) = &register_data.r14 {
+        output.push_str(&format!("  R14: {}\n", r14));
+    }
+    if let Some(r15) = &register_data.r15 {
+        output.push_str(&format!("  R15: {}\n", r15));
+    }
+
+    // 格式化XMM/YMM寄存器
+    output.push_str("\n向量寄存器:\n");
+    format_xmm_register("XMM0", &register_data.xmm0, &mut output);
+    format_xmm_register("XMM1", &register_data.xmm1, &mut output);
+    format_xmm_register("XMM2", &register_data.xmm2, &mut output);
+    format_xmm_register("XMM3", &register_data.xmm3, &mut output);
+    format_xmm_register("XMM4", &register_data.xmm4, &mut output);
+    format_xmm_register("XMM5", &register_data.xmm5, &mut output);
+    format_xmm_register("XMM6", &register_data.xmm6, &mut output);
+    format_xmm_register("XMM7", &register_data.xmm7, &mut output);
+    format_xmm_register("XMM8", &register_data.xmm8, &mut output);
+    format_xmm_register("XMM9", &register_data.xmm9, &mut output);
+    format_xmm_register("XMM10", &register_data.xmm10, &mut output);
+    format_xmm_register("XMM11", &register_data.xmm11, &mut output);
+    format_xmm_register("XMM12", &register_data.xmm12, &mut output);
+    format_xmm_register("XMM13", &register_data.xmm13, &mut output);
+    format_xmm_register("XMM14", &register_data.xmm14, &mut output);
+    format_xmm_register("XMM15", &register_data.xmm15, &mut output);
+
+    // 格式化标志寄存器
+    if let Some(flags) = &register_data.flags {
+        output.push_str(&format!("\n标志寄存器:\n  {}\n", flags));
+    }
+
+    output
+}
+
+/// 格式化单个XMM寄存器
+fn format_xmm_register(name: &str, xmm_data: &Option<Vec<String>>, output: &mut String) {
+    if let Some(data) = xmm_data {
+        if data.len() >= 4 {
+            // YMM寄存器格式 (256位)
+            let low_qword1 = &data[0];
+            let low_qword2 = &data[1];
+            let high_qword1 = &data[2];
+            let high_qword2 = &data[3];
+
+            // 检查高128位是否全为0，如果是则显示为XMM格式
+            if high_qword1 == "0x0000000000000000" && high_qword2 == "0x0000000000000000" {
+                // XMM格式 (128位)
+                output.push_str(&format!("  {}: {} {}\n", name, low_qword1, low_qword2));
+            } else {
+                // YMM格式 (256位)
+                output.push_str(&format!("  {}: {} {} {} {}\n", name, low_qword1, low_qword2, high_qword1, high_qword2));
+            }
+        } else if data.len() >= 2 {
+            // XMM格式 (128位)
+            let qword1 = &data[0];
+            let qword2 = &data[1];
+            output.push_str(&format!("  {}: {} {}\n", name, qword1, qword2));
+        }
+    }
+}
+
+/// 格式化rflags寄存器，显示各个标志位的详细信息
+fn format_flags(flags: u64) -> String {
+    let cf = (flags >> 0) & 1;   // 进位标志
+    let pf = (flags >> 2) & 1;   // 奇偶标志
+    let af = (flags >> 4) & 1;   // 辅助进位标志
+    let zf = (flags >> 6) & 1;   // 零标志
+    let sf = (flags >> 7) & 1;   // 符号标志
+    let tf = (flags >> 8) & 1;   // 陷阱标志
+    let if_flag = (flags >> 9) & 1;   // 中断允许标志
+    let df = (flags >> 10) & 1;  // 方向标志
+    let of = (flags >> 11) & 1;  // 溢出标志
+    let iopl = (flags >> 12) & 3;     // IO特权级别
+    let nt = (flags >> 14) & 1;  // 嵌套任务
+    let rf = (flags >> 16) & 1;  // 恢复标志
+    let vm = (flags >> 17) & 1;  // 虚拟8086模式
+    let ac = (flags >> 18) & 1;  // 对齐检查
+    let vif = (flags >> 19) & 1; // 虚拟中断标志
+    let vip = (flags >> 20) & 1; // 虚拟中断挂起
+    let id = (flags >> 21) & 1;  // ID标志
+
+    format!("0x{:08x} [CF:{} PF:{} AF:{} ZF:{} SF:{} TF:{} IF:{} DF:{} OF:{} IOPL:{} NT:{} RF:{} VM:{} AC:{} VIF:{} VIP:{} ID:{}]",
+            flags, cf, pf, af, zf, sf, tf, if_flag, df, of, iopl, nt, rf, vm, ac, vif, vip, id)
 }
