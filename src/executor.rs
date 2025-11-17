@@ -2,10 +2,10 @@
 //!
 //! 负责在原生x86环境下执行编译后的代码，使用父子进程协作模型和ptrace系统调用
 
-use crate::error::{AsmTestError, Result};
 use crate::elf::ElfInfo;
-use x86_asm_test::{AsmTestConfig, RegisterData, XmmRegisters, MemorySize};
-use libc::{c_void, pid_t, waitpid, WIFSTOPPED, WSTOPSIG, SIGTRAP, SIGSTOP, fork, ptrace, PTRACE_TRACEME, PTRACE_ATTACH, PTRACE_DETACH, PTRACE_GETREGS, PTRACE_SETREGS, PTRACE_CONT, PTRACE_GETREGSET, mmap, munmap, MAP_PRIVATE, MAP_ANONYMOUS, MAP_FIXED, PROT_READ, PROT_WRITE, PROT_EXEC, user_regs_struct, kill, raise, sleep, MAP_FIXED_NOREPLACE, iovec, PTRACE_SETREGSET};
+use crate::error::{AsmTestError, Result};
+use libc::{c_void, fork, iovec, kill, mmap, munmap, pid_t, ptrace, raise, user_regs_struct, waitpid, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_CONT, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_TRACEME, SIGSTOP, SIGTRAP, WIFSTOPPED, WSTOPSIG};
+use x86_asm_test::{AsmTestConfig, MemorySize, RegisterData, XmmRegisters};
 
 /// 执行结果
 #[derive(Debug)]
@@ -345,18 +345,6 @@ fn parse_hex_address(address_str: &str) -> Result<u64> {
     }
 }
 
-/// 解析十六进制值字符串
-fn parse_hex_value(hex_str: &str) -> Result<u64> {
-    let trimmed = hex_str.trim();
-    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
-        u64::from_str_radix(&trimmed[2..], 16)
-            .map_err(|e| AsmTestError::Execution(format!("无法解析十六进制值 {}: {}", hex_str, e)))
-    } else {
-        trimmed.parse::<u64>()
-            .map_err(|e| AsmTestError::Execution(format!("无法解析值 {}: {}", hex_str, e)))
-    }
-}
-
 unsafe fn dump_memory_region(memory: *mut c_void, address: u64, size: usize, max_bytes: usize) {
     if !cfg!(debug_assertions) {
         return;
@@ -525,11 +513,6 @@ fn execute_in_parent_process(pid: pid_t, _elf_info: &ElfInfo, _config: &AsmTestC
     })
 }
 
-/// 使用ptrace分离进程
-fn detach_from_process(_pid: pid_t) -> Result<()> {
-    // 不再需要分离进程，因为子进程已经设置了PTRACE_TRACEME
-    Ok(())
-}
 
 /// 使用ptrace获取寄存器状态
 fn get_registers(pid: pid_t) -> Result<RegisterData> {

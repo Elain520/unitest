@@ -3,10 +3,10 @@
 //! 负责调用NASM汇编器编译汇编代码
 
 use crate::error::{AsmTestError, Result};
-use x86_asm_test::AsmTestConfig;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use x86_asm_test::AsmTestConfig;
 
 /// 编译结果
 #[derive(Debug)]

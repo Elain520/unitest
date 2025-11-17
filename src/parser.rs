@@ -2,7 +2,6 @@
 //!
 //! 负责解析包含JSON配置的汇编文件，提取配置部分和汇编代码部分
 
-
 use crate::error::{AsmTestError, Result};
 use serde_json;
 use std::fs;

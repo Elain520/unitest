@@ -11,10 +11,10 @@ mod elf;
 mod executor;
 
 use cli::Cli;
-use parser::parse_asm_test_file;
 use compiler::compile_with_nasm;
-use linker::link_with_system_linker;
 use elf::parse_elf_file;
+use linker::link_with_system_linker;
+use parser::parse_asm_test_file;
 
 fn main() -> Result<()> {
     // 解析命令行参数
