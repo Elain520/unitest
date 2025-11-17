@@ -27,7 +27,7 @@ pub struct AsmTestConfig {
 
     /// 内存数据配置
     #[serde(rename = "MemoryData", skip_serializing_if = "Option::is_none")]
-    pub memory_data: Option<HashMap<String, Vec<MemoryValue>>>,
+    pub memory_data: Option<HashMap<String, String>>,
 }
 
 /// 寄存器数据
@@ -119,14 +119,6 @@ pub enum ExecutionMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum MemorySize {
-    Number(u64),
-    HexString(String),
-}
-
-/// 内存值
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum MemoryValue {
     Number(u64),
     HexString(String),
 }
