@@ -4,7 +4,7 @@
 
 use crate::error::{AsmTestError, Result};
 use crate::elf::ElfInfo;
-use x86_asm_test::{AsmTestConfig, RegisterData, XmmRegisters};
+use x86_asm_test::{AsmTestConfig, RegisterData, XmmRegisters, MemorySize, MemoryValue};
 use libc::{c_void, pid_t, waitpid, WIFSTOPPED, WSTOPSIG, SIGTRAP, SIGSTOP, fork, ptrace, PTRACE_TRACEME, PTRACE_ATTACH, PTRACE_DETACH, PTRACE_GETREGS, PTRACE_SETREGS, PTRACE_CONT, PTRACE_GETREGSET, mmap, munmap, MAP_PRIVATE, MAP_ANONYMOUS, MAP_FIXED, PROT_READ, PROT_WRITE, PROT_EXEC, user_regs_struct, kill, raise, sleep, MAP_FIXED_NOREPLACE, iovec, PTRACE_SETREGSET};
 
 /// 执行结果
@@ -72,6 +72,116 @@ unsafe fn execute_in_child_process(elf_info: &ElfInfo, _config: &AsmTestConfig) 
     let stack_size = 16 * 4096usize;
     let _stack_memory = allocate_fixed_memory_rw(stack_address, stack_size)?;
 
+
+    // 根据MemoryRegions配置分配内存区域
+    let mut allocated_memory_regions = Vec::new();
+    if let Some(ref memory_regions) = _config.memory_regions {
+        for (address_str, size) in memory_regions {
+            match parse_hex_address(address_str) {
+                Ok(address) => {
+                    let size_value = match size {
+                        MemorySize::Number(n) => *n as usize,
+                        MemorySize::HexString(hex_str) => {
+                            match parse_hex_address(hex_str) {
+                                Ok(val) => val as usize,
+                                Err(_) => {
+                                    eprintln!("[child] 无法解析内存区域大小: {}", hex_str);
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+
+                    match allocate_fixed_memory_rw(address, size_value) {
+                        Ok(memory) => {
+                            allocated_memory_regions.push((address, size_value, memory));
+                            if cfg!(debug_assertions) {
+                                eprintln!("[child] 分配内存区域: 地址=0x{:x}, 大小={}", address, size_value);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[child] 无法分配内存区域 0x{:x}: {}", address, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[child] 无法解析内存区域地址 {}: {}", address_str, e);
+                }
+            }
+        }
+    }
+
+    // 根据MemoryData配置初始化内存数据
+    if let Some(ref memory_data) = _config.memory_data {
+        for (address_str, data) in memory_data {
+            match parse_hex_address(address_str) {
+                Ok(address) => {
+                    // 查找对应的内存区域
+                    let mut found_region = None;
+                    for &(region_address, region_size, region_memory) in &allocated_memory_regions {
+                        if address >= region_address && address < region_address + region_size as u64 {
+                            found_region = Some((region_address, region_size, region_memory));
+                            break;
+                        }
+                    }
+
+                    if let Some((region_address, region_size, region_memory)) = found_region {
+                        // 计算在区域内的偏移
+                        let offset = (address - region_address) as usize;
+                        let region_ptr = (region_memory as *mut u8).add(offset);
+
+                        // 写入数据
+                        let mut current_offset = 0;
+                        for value in data {
+                            if offset + current_offset >= region_size {
+                                eprintln!("[child] 内存数据超出区域边界: 地址={}, 值={:?}", address_str, value);
+                                break;
+                            }
+
+                            match value {
+                                MemoryValue::Number(n) => {
+                                    let bytes = n.to_le_bytes();
+                                    for (i, byte) in bytes.iter().enumerate() {
+                                        if offset + current_offset + i < region_size {
+                                            *region_ptr.add(current_offset + i) = *byte;
+                                        }
+                                    }
+                                    current_offset += bytes.len();
+                                }
+                                MemoryValue::HexString(hex_str) => {
+                                    match parse_hex_value(hex_str) {
+                                        Ok(val) => {
+                                            let bytes = val.to_le_bytes();
+                                            for (i, byte) in bytes.iter().enumerate() {
+                                                if offset + current_offset + i < region_size {
+                                                    *region_ptr.add(current_offset + i) = *byte;
+                                                }
+                                            }
+                                            current_offset += bytes.len();
+                                        }
+                                        Err(e) => {
+                                            eprintln!("[child] 无法解析十六进制值 {}: {}", hex_str, e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if cfg!(debug_assertions) {
+                            // 显示写入数据后的内存内容
+                            eprintln!("[child] 写入数据后的内存内容:");
+                            dump_memory_region(region_memory, region_address, region_size, 64); // 显示前64字节
+                        }
+                    } else {
+                        eprintln!("[child] 未找到对应的内存区域: {}", address_str);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[child] 无法解析内存数据地址 {}: {}", address_str, e);
+                }
+            }
+        }
+    }
     // 如果有代码段，将代码加载到内存中
     if let Some(ref code_section) = elf_info.code_section {
         if code_section.size + 2 <= code_size {
@@ -119,6 +229,52 @@ unsafe fn execute_in_child_process(elf_info: &ElfInfo, _config: &AsmTestConfig) 
 
     // 不应该到达这里
     Ok(())
+}
+
+/// 解析十六进制地址字符串
+fn parse_hex_address(address_str: &str) -> Result<u64> {
+    let trimmed = address_str.trim();
+    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        u64::from_str_radix(&trimmed[2..], 16)
+            .map_err(|e| AsmTestError::Execution(format!("无法解析十六进制地址 {}: {}", address_str, e)))
+    } else {
+        trimmed.parse::<u64>()
+            .map_err(|e| AsmTestError::Execution(format!("无法解析地址 {}: {}", address_str, e)))
+    }
+}
+
+/// 解析十六进制值字符串
+fn parse_hex_value(hex_str: &str) -> Result<u64> {
+    let trimmed = hex_str.trim();
+    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        u64::from_str_radix(&trimmed[2..], 16)
+            .map_err(|e| AsmTestError::Execution(format!("无法解析十六进制值 {}: {}", hex_str, e)))
+    } else {
+        trimmed.parse::<u64>()
+            .map_err(|e| AsmTestError::Execution(format!("无法解析值 {}: {}", hex_str, e)))
+    }
+}
+
+unsafe fn dump_memory_region(memory: *mut c_void, address: u64, size: usize, max_bytes: usize) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+
+    eprintln!("[child] 内存区域内容: 地址=0x{:x}, 大小={}", address, size);
+    let ptr = memory as *const u8;
+    let display_bytes = std::cmp::min(size, max_bytes);
+
+    for i in 0..display_bytes {
+        if i % 16 == 0 {
+            eprint!("\n[0x{:08x}] ", address + i as u64);
+        }
+        eprint!("{:02x} ", *ptr.add(i));
+    }
+    eprintln!();
+
+    if display_bytes < size {
+        eprintln!("... (显示前{}字节，总共{}字节)", display_bytes, size);
+    }
 }
 
 /// 在父进程中控制子进程执行
