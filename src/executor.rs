@@ -5,6 +5,7 @@
 use crate::elf::ElfInfo;
 use crate::error::{AsmTestError, Result};
 use libc::{c_void, fork, iovec, kill, mmap, munmap, pid_t, ptrace, raise, user_regs_struct, waitpid, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_CONT, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_TRACEME, SIGSTOP, SIGTRAP, WIFSTOPPED, WSTOPSIG};
+use std::str::FromStr;
 use x86_asm_test::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData, XmmRegisters};
 
 /// 执行结果
@@ -559,9 +560,7 @@ fn get_registers(pid: pid_t) -> Result<RegisterData> {
     register_data.r13 = Some(format!("0x{:016x}", regs.r13));
     register_data.r14 = Some(format!("0x{:016x}", regs.r14));
     register_data.r15 = Some(format!("0x{:016x}", regs.r15));
-    // register_data.flags = Some(format!("0x{:08x}", regs.eflags));
-    let flags_value = regs.eflags;
-    register_data.flags = Some(format_flags(flags_value));
+    register_data.flags = Some(format!("0x{:08x}", regs.eflags));
 
     // 获取XMM寄存器状态
     if let Ok(xmm_registers) = get_xmm_registers(pid) {
@@ -1038,7 +1037,12 @@ pub fn format_register_data(register_data: &RegisterData, is_32bit: bool) -> Str
 
     // 格式化标志寄存器
     if let Some(flags) = &register_data.flags {
-        output.push_str(&format!("\n标志寄存器:\n  {}\n", flags));
+        // 解析flags值并显示详细信息
+        if let Ok(flags_value) = u64::from_str_radix(flags.strip_prefix("0x").unwrap_or(flags), 16) {
+            output.push_str(&format!("\n标志寄存器:\n  {}\n", format_flags(flags_value)));
+        } else {
+            output.push_str(&format!("\n标志寄存器:\n  {}\n", flags));
+        }
     }
 
     output

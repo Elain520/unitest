@@ -147,6 +147,37 @@ pub struct ExecutionResult {
     pub error_message: Option<String>,
 }
 
+impl AsmTestFile {
+    /// 生成包含执行结果的汇编文件内容
+    pub fn generate_result_file(&self, register_data: &RegisterData) -> String {
+        let mut result = String::new();
+
+        // 添加CONFIG块
+        result.push_str("%ifdef CONFIG\n");
+
+        // 创建包含结果的配置
+        let mut result_config = self.config.clone();
+        result_config.reg_data = Some(register_data.clone());
+
+        // 序列化配置为JSON
+        if let Ok(config_json) = serde_json::to_string_pretty(&result_config) {
+            result.push_str(&config_json);
+        }
+
+        result.push_str("\n%endif\n\n");
+
+        // 添加原始汇编代码
+        result.push_str(&self.assembly_code);
+
+        // 确保代码以hlt指令结束
+        if !self.assembly_code.trim().ends_with("hlt") && !self.assembly_code.trim().ends_with("hlt\n") {
+            result.push_str("\nhlt\n");
+        }
+
+        result
+    }
+}
+
 impl AsmTestConfig {
     /// 创建新的配置实例
     pub fn new() -> Self {

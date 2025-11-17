@@ -110,6 +110,20 @@ fn execute_test(cli: &Cli) -> Result<()> {
                                                                     let is_32bit = asm_test_file.config.mode.as_ref().map(|m| matches!(m, ExecutionMode::Bit32)).unwrap_or(false);
                                                                     println!("寄存器状态: {:?}", register_data);
                                                                     println!("{}", format_register_data(register_data, is_32bit));
+
+                                                                    // 生成结果文件内容
+                                                                    let result_content = asm_test_file.generate_result_file(register_data);
+
+                                                                    // 如果指定了输出文件，则写入文件，否则输出到标准输出
+                                                                    if let Some(ref output_file) = cli.output_file {
+                                                                        std::fs::write(output_file, result_content)
+                                                                            .map_err(|e| anyhow::anyhow!("无法写入输出文件 {}: {}", output_file, e))?;
+                                                                        if !cli.quiet {
+                                                                            println!("结果已写入文件: {}", output_file);
+                                                                        }
+                                                                    } else {
+                                                                        println!("\n{}", result_content);
+                                                                    }
                                                                 }
                                                             }
                                                         } else {
