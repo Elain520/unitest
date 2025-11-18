@@ -114,7 +114,6 @@ hlt
 .
 ├── src/                 # Rust源代码
 ├── tests/               # 测试文件
-├── samples/             # 示例汇编文件
 ├── Cargo.toml           # 项目配置文件
 ├── README.md            # 项目说明文档
 └── DEVELOPMENT_PLAN.md  # 开发计划文档
@@ -145,10 +144,6 @@ cargo clippy
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启Pull Request
-
-## 许可证
-
-本项目采用MIT许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
 
 ## 联系方式
 

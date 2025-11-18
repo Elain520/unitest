@@ -5,7 +5,7 @@
 use crate::error::{AsmTestError, Result};
 use std::path::Path;
 use std::process::Command;
-use x86_asm_test::AsmTestConfig;
+use crate::types::{AsmTestConfig, ExecutionMode};
 
 /// 链接结果
 #[derive(Debug)]
@@ -35,7 +35,7 @@ pub fn link_with_system_linker<P: AsRef<Path>>(
     }
 
     // 确定链接模式（32位或64位）
-    let is_32bit = config.mode.as_ref().map(|m| matches!(m, x86_asm_test::ExecutionMode::Bit32)).unwrap_or(false);
+    let is_32bit = config.mode.as_ref().map(|m| matches!(m, ExecutionMode::Bit32)).unwrap_or(false);
 
     // 确定输出目录
     let output_dir = output_dir.unwrap_or("/tmp");
@@ -122,7 +122,7 @@ pub fn cleanup_linked_files(executable_file: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x86_asm_test::AsmTestConfig;
+    use crate::types::AsmTestConfig;
 
     #[test]
     fn test_link_with_system_linker_nonexistent_file() {

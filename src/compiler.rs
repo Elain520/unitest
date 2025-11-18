@@ -6,7 +6,7 @@ use crate::error::{AsmTestError, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use x86_asm_test::AsmTestConfig;
+use crate::types::{AsmTestConfig, ExecutionMode};
 
 /// 编译结果
 #[derive(Debug)]
@@ -36,7 +36,7 @@ pub fn compile_with_nasm<P: AsRef<Path>>(
     }
 
     // 确定编译模式（32位或64位）
-    let is_32bit = config.mode.as_ref().map(|m| matches!(m, x86_asm_test::ExecutionMode::Bit32)).unwrap_or(false);
+    let is_32bit = config.mode.as_ref().map(|m| matches!(m, ExecutionMode::Bit32)).unwrap_or(false);
 
     // 确定输出目录
     let output_dir = output_dir.unwrap_or("/tmp");
@@ -101,7 +101,7 @@ pub fn cleanup_compiled_files(object_file: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x86_asm_test::AsmTestConfig;
+    use crate::types::AsmTestConfig;
 
     #[test]
     fn test_compile_with_nasm_nonexistent_file() {

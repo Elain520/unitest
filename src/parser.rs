@@ -6,7 +6,7 @@ use crate::error::{AsmTestError, Result};
 use serde_json;
 use std::fs;
 use std::path::Path;
-use x86_asm_test::{AsmTestConfig, AsmTestFile};
+use crate::types::{AsmTestConfig, AsmTestFile};
 
 /// 解析汇编测试文件
 pub fn parse_asm_test_file<P: AsRef<Path>>(file_path: P) -> Result<AsmTestFile> {

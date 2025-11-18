@@ -5,8 +5,7 @@
 use crate::elf::ElfInfo;
 use crate::error::{AsmTestError, Result};
 use libc::{c_void, fork, iovec, kill, mmap, munmap, pid_t, ptrace, raise, user_regs_struct, waitpid, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_CONT, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_TRACEME, SIGSTOP, SIGTRAP, WIFSTOPPED, WSTOPSIG};
-use std::str::FromStr;
-use x86_asm_test::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData, XmmRegisters};
+use crate::types::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData, XmmRegisters};
 
 /// 执行结果
 #[derive(Debug)]
