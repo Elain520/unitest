@@ -1213,6 +1213,7 @@ fn set_initial_registers(pid: pid_t, regs: &mut user_regs_struct, config: &AsmTe
         return Err(AsmTestError::Execution("无法设置子进程寄存器状态".to_string()));
     }
 
+    reset_xmm_ymm_registers(pid);
     // 设置XMM寄存器初始状态
     if let Err(e) = set_xmm_registers(pid, config) {
         eprintln!("警告: 无法设置XMM寄存器初始状态: {}", e);
