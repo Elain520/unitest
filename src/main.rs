@@ -14,10 +14,11 @@ mod types;
 use cli::Cli;
 use compiler::compile_with_nasm;
 use elf::parse_elf_file;
+use error::AsmTestError;
 use linker::link_with_system_linker;
 use parser::parse_asm_test_file;
+use types::{AsmTestConfig, AsmTestFile, ExecutionMode, RegisterData};
 use executor::format_register_data;
-use crate::types::ExecutionMode;
 
 fn main() -> Result<()> {
     // 解析命令行参数

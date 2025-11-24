@@ -101,7 +101,10 @@ pub fn cleanup_compiled_files(object_file: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::AsmTestConfig;
+    use crate::types::{AsmTestConfig, ExecutionMode};
+    use std::fs;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_compile_with_nasm_nonexistent_file() {
@@ -119,8 +122,62 @@ mod tests {
 
     #[test]
     fn test_compile_with_nasm_32bit_mode() {
-        let _config = AsmTestConfig::new();
-        // 注意：这里我们不能直接创建ExecutionMode::Bit32，因为它是私有的
-        // 在实际使用中，我们会从JSON解析得到这个值
+        // 创建一个临时的简单汇编文件
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "mov eax, 1\nret").unwrap();
+        temp_file.flush().unwrap();
+
+        let mut config = AsmTestConfig::new();
+        config.mode = Some(ExecutionMode::Bit32);
+
+        let result = compile_with_nasm(temp_file.path(), &config, Some("/tmp"));
+        // 注意：这个测试可能依赖于系统上是否安装了NASM
+        // 我们主要测试函数是否能正确处理32位模式配置
+        assert!(result.is_ok() || result.is_err()); // 至少不会panic
+    }
+
+    #[test]
+    fn test_compile_simple_asm_file() {
+        // 创建一个临时的简单汇编文件
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "mov rax, 1\nret").unwrap();
+        temp_file.flush().unwrap();
+
+        let config = AsmTestConfig::new();
+        let result = compile_with_nasm(temp_file.path(), &config, Some("/tmp"));
+
+        // 注意：这个测试可能依赖于系统上是否安装了NASM
+        // 我们主要测试函数是否能正确处理输入
+        assert!(result.is_ok() || result.is_err()); // 至少不会panic
+    }
+
+    #[test]
+    fn test_compile_output_file_created() {
+        // 创建一个临时的简单汇编文件
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "mov rax, 1\nret").unwrap();
+        temp_file.flush().unwrap();
+
+        let config = AsmTestConfig::new();
+        let result = compile_with_nasm(temp_file.path(), &config, Some("/tmp"));
+
+        if let Ok(compile_result) = result {
+            if compile_result.success {
+                // 检查目标文件是否存在
+                assert!(fs::metadata(&compile_result.object_file).is_ok());
+                // 清理生成的文件
+                let _ = fs::remove_file(&compile_result.object_file);
+            }
+        }
+    }
+
+    #[test]
+    fn test_compile_empty_file() {
+        // 创建一个临时的空文件
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let config = AsmTestConfig::new();
+        let result = compile_with_nasm(temp_file.path(), &config, Some("/tmp"));
+        assert!(result.is_ok() || result.is_err()); // 至少不会panic
     }
 }

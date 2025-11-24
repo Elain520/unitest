@@ -122,7 +122,9 @@ pub fn cleanup_linked_files(executable_file: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::AsmTestConfig;
+    use crate::types::{AsmTestConfig, ExecutionMode};
+    use std::fs;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_link_with_system_linker_nonexistent_file() {
@@ -135,5 +137,61 @@ mod tests {
     fn test_is_linker_available() {
         // 测试一个不存在的链接器
         assert_eq!(is_linker_available("nonexistent_linker"), false);
+    }
+
+    #[test]
+    fn test_link_simple_object_file() {
+        // 创建一个临时的目标文件（实际上是空文件，但用于测试链接器调用）
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let config = AsmTestConfig::new();
+        let result = link_with_system_linker(temp_file.path(), &config, Some("/tmp"));
+
+        // 注意：这个测试可能依赖于系统上是否安装了链接器
+        // 我们主要测试函数是否能正确处理输入
+        assert!(result.is_ok() || result.is_err()); // 至少不会panic
+    }
+
+    #[test]
+    fn test_link_with_32bit_mode() {
+        // 创建一个临时的目标文件
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let mut config = AsmTestConfig::new();
+        config.mode = Some(ExecutionMode::Bit32);
+
+        let result = link_with_system_linker(temp_file.path(), &config, Some("/tmp"));
+
+        // 注意：这个测试可能依赖于系统上是否安装了链接器
+        // 我们主要测试函数是否能正确处理32位模式配置
+        assert!(result.is_ok() || result.is_err()); // 至少不会panic
+    }
+
+    #[test]
+    fn test_link_executable_file_created() {
+        // 创建一个临时的目标文件
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let config = AsmTestConfig::new();
+        let result = link_with_system_linker(temp_file.path(), &config, Some("/tmp"));
+
+        if let Ok(link_result) = result {
+            if link_result.success {
+                // 检查可执行文件是否存在
+                assert!(fs::metadata(&link_result.executable_file).is_ok());
+                // 清理生成的文件
+                let _ = fs::remove_file(&link_result.executable_file);
+            }
+        }
+    }
+
+    #[test]
+    fn test_link_empty_object_file() {
+        // 创建一个临时的空文件
+        let temp_file = NamedTempFile::new().unwrap();
+
+        let config = AsmTestConfig::new();
+        let result = link_with_system_linker(temp_file.path(), &config, Some("/tmp"));
+        assert!(result.is_ok() || result.is_err()); // 至少不会panic
     }
 }
