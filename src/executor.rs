@@ -334,7 +334,7 @@ fn validate_memory_data_addresses(config: &AsmTestConfig) -> Result<()> {
 }
 
 /// 解析十六进制地址字符串
-fn parse_hex_address(address_str: &str) -> Result<u64> {
+pub fn parse_hex_address(address_str: &str) -> Result<u64> {
     let trimmed = address_str.trim();
     if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
         u64::from_str_radix(&trimmed[2..], 16)
@@ -346,7 +346,7 @@ fn parse_hex_address(address_str: &str) -> Result<u64> {
 }
 
 /// 解析十六进制值字符串
-fn parse_hex_value(hex_str: &str) -> Result<u64> {
+pub fn parse_hex_value(hex_str: &str) -> Result<u64> {
     let trimmed = hex_str.trim();
     if trimmed.is_empty() {
         return Ok(0); // 空字符串返回0

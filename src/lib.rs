@@ -6,16 +6,17 @@
 //! - 内存管理
 //! - 原生执行环境
 //! - 寄存器状态捕获
-mod cli;
-mod error;
-mod parser;
-mod compiler;
-mod linker;
-mod elf;
-mod executor;
-mod types;
+pub mod cli;
+pub mod error;
+pub mod parser;
+pub mod compiler;
+pub mod linker;
+pub mod elf;
+pub mod executor;
+pub mod types;
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 
 #[cfg(test)]
