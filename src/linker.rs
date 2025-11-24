@@ -3,9 +3,9 @@
 //! 负责调用系统链接器链接目标文件生成可执行文件
 
 use crate::error::{AsmTestError, Result};
+use crate::types::{AsmTestConfig, ExecutionMode};
 use std::path::Path;
 use std::process::Command;
-use crate::types::{AsmTestConfig, ExecutionMode};
 
 /// 链接结果
 #[derive(Debug)]

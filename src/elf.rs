@@ -191,7 +191,6 @@ fn get_symbol_type(sym: &Sym) -> SymbolType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use std::io::Write;
     use tempfile::NamedTempFile;
 

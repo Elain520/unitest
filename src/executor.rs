@@ -4,8 +4,8 @@
 
 use crate::elf::ElfInfo;
 use crate::error::{AsmTestError, Result};
-use libc::{c_void, fork, iovec, kill, mmap, munmap, pid_t, ptrace, raise, user_regs_struct, waitpid, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_CONT, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_TRACEME, SIGSTOP, SIGTRAP, WIFSTOPPED, WSTOPSIG};
 use crate::types::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData, XmmRegisters};
+use libc::{c_void, fork, iovec, kill, mmap, munmap, pid_t, ptrace, raise, user_regs_struct, waitpid, MAP_ANONYMOUS, MAP_FIXED, MAP_FIXED_NOREPLACE, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, PTRACE_CONT, PTRACE_GETREGS, PTRACE_GETREGSET, PTRACE_SETREGS, PTRACE_SETREGSET, PTRACE_TRACEME, SIGSTOP, SIGTRAP, WIFSTOPPED, WSTOPSIG};
 
 /// 执行结果
 #[derive(Debug)]
@@ -1348,10 +1348,8 @@ fn set_xmm_register_value(buffer: *mut c_void, buffer_len: usize, index: usize, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elf::SectionInfo;
     use crate::types::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData};
     use std::collections::HashMap;
-    use std::fs::File;
     use std::io::Write;
     use tempfile::NamedTempFile;
 

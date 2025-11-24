@@ -35,3 +35,98 @@ impl Cli {
         Self::parse()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_default_values() {
+        let cli = Cli::parse_from(["test"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, false);
+    }
+
+    #[test]
+    fn test_cli_with_test_file() {
+        let cli = Cli::parse_from(["test", "--test", "test.asm"]);
+        assert_eq!(cli.test_file, Some("test.asm".to_string()));
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, false);
+    }
+
+    #[test]
+    fn test_cli_with_include_path() {
+        let cli = Cli::parse_from(["test", "--include", "/path/to/include"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, Some("/path/to/include".to_string()));
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, false);
+    }
+
+    #[test]
+    fn test_cli_with_output_file() {
+        let cli = Cli::parse_from(["test", "--output", "result.asm"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, Some("result.asm".to_string()));
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, false);
+    }
+
+    #[test]
+    fn test_cli_with_verbose_flag() {
+        let cli = Cli::parse_from(["test", "--verbose"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 1);
+        assert_eq!(cli.quiet, false);
+    }
+
+    #[test]
+    fn test_cli_with_multiple_verbose_flags() {
+        let cli = Cli::parse_from(["test", "-vv"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 2);
+        assert_eq!(cli.quiet, false);
+    }
+
+    #[test]
+    fn test_cli_with_quiet_flag() {
+        let cli = Cli::parse_from(["test", "--quiet"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, true);
+    }
+
+    #[test]
+    fn test_cli_with_combined_flags() {
+        let cli = Cli::parse_from(["test", "--test", "test.asm", "--include", "/include", "--output", "result.asm", "-v", "-q"]);
+        assert_eq!(cli.test_file, Some("test.asm".to_string()));
+        assert_eq!(cli.include_path, Some("/include".to_string()));
+        assert_eq!(cli.output_file, Some("result.asm".to_string()));
+        assert_eq!(cli.verbose, 1);
+        assert_eq!(cli.quiet, true);
+    }
+
+    #[test]
+    fn test_cli_with_short_flags() {
+        let cli = Cli::parse_from(["test", "-t", "test.asm", "-i", "/include", "-o", "result.asm"]);
+        assert_eq!(cli.test_file, Some("test.asm".to_string()));
+        assert_eq!(cli.include_path, Some("/include".to_string()));
+        assert_eq!(cli.output_file, Some("result.asm".to_string()));
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, false);
+    }
+}

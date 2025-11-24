@@ -79,8 +79,8 @@ fn parse_config_json(json_str: &str) -> Result<AsmTestConfig> {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::ExecutionMode;
     use super::*;
+    use crate::types::ExecutionMode;
 
     #[test]
     fn test_parse_simple_asm_file() {

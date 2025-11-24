@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// 汇编测试配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
