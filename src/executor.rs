@@ -1344,3 +1344,181 @@ fn set_xmm_register_value(buffer: *mut c_void, buffer_len: usize, index: usize, 
         // 如果没有指定值或值为空，保持为0（已初始化）
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::elf::SectionInfo;
+    use crate::types::{AsmTestConfig, ExecutionMode, MemorySize, RegisterData};
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_execute_simple_asm_file() {
+        // 创建一个简单的汇编文件
+        let mut asm_file = NamedTempFile::new().unwrap();
+        writeln!(asm_file, "section .text\n global _start\n_start:\n  mov rax, 5\n  mov rbx, 10\n  add rax, rbx\n  nop").unwrap();
+        asm_file.flush().unwrap();
+
+        let config = AsmTestConfig::new();
+
+        // 编译和链接
+        let compile_result = crate::compiler::compile_with_nasm(asm_file.path(), &config, Some("/tmp")).unwrap();
+        assert!(compile_result.success);
+
+        let link_result = crate::linker::link_with_system_linker(&compile_result.object_file, &config, Some("/tmp")).unwrap();
+        assert!(link_result.success);
+
+        // 解析ELF文件
+        let elf_info = crate::elf::parse_elf_file(&link_result.executable_file).unwrap();
+
+        // 执行ELF文件
+        let result = execute_elf_file(&elf_info, &config);
+        assert!(result.is_ok());
+
+        let execute_result = result.unwrap();
+        assert!(execute_result.success);
+        assert!(execute_result.register_data.is_some());
+
+        let register_data = execute_result.register_data.unwrap();
+        assert!(register_data.rax.is_some());
+        assert_eq!(register_data.rax.unwrap(), "0x000000000000000f"); // 5 + 10 = 15
+
+        // 清理文件
+        let _ = std::fs::remove_file(&compile_result.object_file);
+        let _ = std::fs::remove_file(&link_result.executable_file);
+    }
+
+    #[test]
+    fn test_execute_with_reg_init() {
+        // 创建一个使用寄存器初始值的汇编文件
+        let mut asm_file = NamedTempFile::new().unwrap();
+        writeln!(asm_file, "section .text\n global _start\n_start:\n  add rax, rbx\n  nop").unwrap();
+        asm_file.flush().unwrap();
+
+        // 配置寄存器初始值
+        let mut config = AsmTestConfig::new();
+        let mut reg_init = RegisterData::new();
+        reg_init.rax = Some("0x0000000000000005".to_string());
+        reg_init.rbx = Some("0x000000000000000a".to_string()); // 10
+        config.reg_init = Some(reg_init);
+
+        // 编译和链接
+        let compile_result = crate::compiler::compile_with_nasm(asm_file.path(), &config, Some("/tmp")).unwrap();
+        assert!(compile_result.success);
+
+        let link_result = crate::linker::link_with_system_linker(&compile_result.object_file, &config, Some("/tmp")).unwrap();
+        assert!(link_result.success);
+
+        // 解析ELF文件
+        let elf_info = crate::elf::parse_elf_file(&link_result.executable_file).unwrap();
+
+        // 执行ELF文件
+        let result = execute_elf_file(&elf_info, &config);
+        assert!(result.is_ok());
+
+        let execute_result = result.unwrap();
+        assert!(execute_result.success);
+        assert!(execute_result.register_data.is_some());
+
+        let register_data = execute_result.register_data.unwrap();
+        assert!(register_data.rax.is_some());
+        assert_eq!(register_data.rax.unwrap(), "0x000000000000000f"); // 5 + 10 = 15
+
+        // 清理文件
+        let _ = std::fs::remove_file(&compile_result.object_file);
+        let _ = std::fs::remove_file(&link_result.executable_file);
+    }
+
+    #[test]
+    fn test_execute_with_32bit_mode() {
+        // 创建一个32位汇编文件
+        let mut asm_file = NamedTempFile::new().unwrap();
+        writeln!(asm_file, "section .text\n bits 32\n global _start\n_start:\n  mov eax, 5\n  mov ebx, 10\n  add eax, ebx\n  nop").unwrap();
+        asm_file.flush().unwrap();
+
+        // 配置32位模式
+        let mut config = AsmTestConfig::new();
+        config.mode = Some(ExecutionMode::Bit32);
+
+        // 编译和链接
+        let compile_result = crate::compiler::compile_with_nasm(asm_file.path(), &config, Some("/tmp")).unwrap();
+        assert!(compile_result.success);
+
+        let link_result = crate::linker::link_with_system_linker(&compile_result.object_file, &config, Some("/tmp")).unwrap();
+        assert!(link_result.success);
+
+        // 解析ELF文件
+        let elf_info = crate::elf::parse_elf_file(&link_result.executable_file).unwrap();
+
+        // 执行ELF文件
+        let result = execute_elf_file(&elf_info, &config);
+        assert!(result.is_ok());
+
+        let execute_result = result.unwrap();
+        assert!(execute_result.success);
+
+        // 清理文件
+        let _ = std::fs::remove_file(&compile_result.object_file);
+        let _ = std::fs::remove_file(&link_result.executable_file);
+    }
+
+    #[test]
+    fn test_parse_hex_address() {
+        // 测试十六进制地址解析
+        assert_eq!(parse_hex_address("0x10000000").unwrap(), 0x10000000);
+        assert_eq!(parse_hex_address("0X20000000").unwrap(), 0x20000000);
+        assert_eq!(parse_hex_address("10000000").unwrap(), 10000000);
+        assert!(parse_hex_address("invalid").is_err());
+    }
+
+    #[test]
+    fn test_parse_hex_value() {
+        // 测试十六进制值解析
+        assert_eq!(parse_hex_value("0x12345678").unwrap(), 0x12345678);
+        assert_eq!(parse_hex_value("0XABCDEF").unwrap(), 0xABCDEF);
+        assert_eq!(parse_hex_value("123456").unwrap(), 0x123456); // 十六进制123456 = 1193046
+        assert_eq!(parse_hex_value("").unwrap(), 0);
+        assert!(parse_hex_value("invalid").is_err());
+    }
+
+    #[test]
+    fn test_validate_memory_data_addresses() {
+        // 测试内存数据地址验证
+        let mut config = AsmTestConfig::new();
+
+        // 添加内存区域
+        let mut memory_regions = HashMap::new();
+        memory_regions.insert("0x10000000".to_string(), MemorySize::Number(4096));
+        config.memory_regions = Some(memory_regions);
+
+        // 添加有效的内存数据
+        let mut memory_data = HashMap::new();
+        memory_data.insert("0x10000000".to_string(), "0x12345678".to_string());
+        config.memory_data = Some(memory_data);
+
+        // 验证应该成功
+        assert!(validate_memory_data_addresses(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_memory_data_addresses_invalid() {
+        // 测试无效内存数据地址验证
+        let mut config = AsmTestConfig::new();
+
+        // 添加内存区域
+        let mut memory_regions = HashMap::new();
+        memory_regions.insert("0x10000000".to_string(), MemorySize::Number(4096));
+        config.memory_regions = Some(memory_regions);
+
+        // 添加无效的内存数据（地址不在任何内存区域中）
+        let mut memory_data = HashMap::new();
+        memory_data.insert("0x20000000".to_string(), "0x12345678".to_string());
+        config.memory_data = Some(memory_data);
+
+        // 验证应该失败
+        assert!(validate_memory_data_addresses(&config).is_err());
+    }
+}
