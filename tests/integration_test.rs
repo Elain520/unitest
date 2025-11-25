@@ -3,13 +3,10 @@
 //! 测试整个x86汇编测试框架的功能
 
 use std::path::Path;
-use tempfile::TempDir;
 
 // 导入模块
 use x86_asm_test::{
     parser,
-    compiler,
-    linker,
     executor,
     types::{ExecutionMode}
 };

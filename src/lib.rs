@@ -15,9 +15,6 @@ pub mod elf;
 pub mod executor;
 pub mod types;
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
 
 #[cfg(test)]
 mod tests {

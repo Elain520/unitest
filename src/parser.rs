@@ -3,7 +3,7 @@
 //! 负责解析包含JSON配置的汇编文件，提取配置部分和汇编代码部分
 
 use crate::error::{AsmTestError, Result};
-use crate::types::{AsmTestConfig, AsmTestFile, ExecutionMode};
+use crate::types::{AsmTestConfig, AsmTestFile};
 use serde_json;
 use std::fs;
 use std::path::Path;
