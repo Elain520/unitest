@@ -797,12 +797,25 @@ fn reset_xmm_ymm_registers(pid: pid_t) -> Result<()> {
             libc::memset(xmm_base as *mut libc::c_void, 0, 16 * 16);
         }
 
+        // 如果缓冲区足够大，也清零YMM高位部分
+        if iov.iov_len >= 0x240 + 16 * 16 {
+            let ymmh_base = unsafe { (xstate_buffer as *mut u8).add(0x240) };
+            unsafe {
+                libc::memset(ymmh_base as *mut libc::c_void, 0, 16 * 16);
+            }
+        }
+
         // 设置xstate_bv标志位，表示SSE状态有效
         if iov.iov_len >= 512 + 8 {
             let xstate_hdr = unsafe { (xstate_buffer as *mut u8).add(512) as *mut u64 };
             unsafe {
                 // 设置SSE状态位 (bit 1)
                 *xstate_hdr |= 1u64 << 1;
+
+                // 如果有YMM高位部分，也设置AVX状态位 (bit 2)
+                if iov.iov_len >= 0x240 + 16 * 16 {
+                    *xstate_hdr |= 1u64 << 2;
+                }
             }
         }
 
@@ -1063,27 +1076,14 @@ fn format_32bit_value(value: &str) -> String {
 /// 格式化单个XMM寄存器
 fn format_xmm_register(name: &str, xmm_data: &Option<Vec<String>>, output: &mut String) {
     if let Some(data) = xmm_data {
-        if data.len() >= 4 {
-            // YMM寄存器格式 (256位)
-            let low_qword1 = &data[0];
-            let low_qword2 = &data[1];
-            let high_qword1 = &data[2];
-            let high_qword2 = &data[3];
+        // 始终显示完整的YMM格式（4个64位值）
+        let qword1 = if data.len() > 0 { &data[0] } else { "0x0000000000000000" };
+        let qword2 = if data.len() > 1 { &data[1] } else { "0x0000000000000000" };
+        let qword3 = if data.len() > 2 { &data[2] } else { "0x0000000000000000" };
+        let qword4 = if data.len() > 3 { &data[3] } else { "0x0000000000000000" };
 
-            // 检查高128位是否全为0，如果是则显示为XMM格式
-            if high_qword1 == "0x0000000000000000" && high_qword2 == "0x0000000000000000" {
-                // XMM格式 (128位)
-                output.push_str(&format!("  {}: {} {}\n", name, low_qword1, low_qword2));
-            } else {
-                // YMM格式 (256位)
-                output.push_str(&format!("  {}: {} {} {} {}\n", name, low_qword1, low_qword2, high_qword1, high_qword2));
-            }
-        } else if data.len() >= 2 {
-            // XMM格式 (128位)
-            let qword1 = &data[0];
-            let qword2 = &data[1];
-            output.push_str(&format!("  {}: {} {}\n", name, qword1, qword2));
-        }
+        // 始终以YMM格式显示（4个64位值）
+        output.push_str(&format!("  {}: {} {} {} {}\n", name, qword1, qword2, qword3, qword4));
     }
 }
 
@@ -1297,6 +1297,16 @@ fn set_xmm_registers(pid: pid_t, config: &AsmTestConfig) -> Result<()> {
         unsafe {
             // 设置SSE状态位 (bit 1)
             *xstate_hdr |= 1u64 << 1;
+
+            // 检查是否有任何寄存器设置了YMM高位值，如果有则也设置AVX状态位 (bit 2)
+            let mut has_ymm_values = false;
+            if let Some(ref reg_init) = config.reg_init {
+                has_ymm_values = has_ymm_high_values(reg_init);
+            }
+
+            if has_ymm_values {
+                *xstate_hdr |= 1u64 << 2;
+            }
         }
     }
 
@@ -1314,6 +1324,35 @@ fn set_xmm_registers(pid: pid_t, config: &AsmTestConfig) -> Result<()> {
     Ok(())
 }
 
+/// 检查是否有任何寄存器设置了YMM高位值（超过2个值）
+fn has_ymm_high_values(reg_init: &RegisterData) -> bool {
+    // 检查XMM0-XMM15是否有任何一个寄存器设置了超过2个值
+    fn has_more_than_two_values(vec: &Option<Vec<String>>) -> bool {
+        if let Some(values) = vec {
+            values.iter().filter(|s| !s.trim().is_empty()).count() > 2
+        } else {
+            false
+        }
+    }
+
+    has_more_than_two_values(&reg_init.xmm0) ||
+    has_more_than_two_values(&reg_init.xmm1) ||
+    has_more_than_two_values(&reg_init.xmm2) ||
+    has_more_than_two_values(&reg_init.xmm3) ||
+    has_more_than_two_values(&reg_init.xmm4) ||
+    has_more_than_two_values(&reg_init.xmm5) ||
+    has_more_than_two_values(&reg_init.xmm6) ||
+    has_more_than_two_values(&reg_init.xmm7) ||
+    has_more_than_two_values(&reg_init.xmm8) ||
+    has_more_than_two_values(&reg_init.xmm9) ||
+    has_more_than_two_values(&reg_init.xmm10) ||
+    has_more_than_two_values(&reg_init.xmm11) ||
+    has_more_than_two_values(&reg_init.xmm12) ||
+    has_more_than_two_values(&reg_init.xmm13) ||
+    has_more_than_two_values(&reg_init.xmm14) ||
+    has_more_than_two_values(&reg_init.xmm15)
+}
+
 /// 设置单个XMM寄存器的值
 fn set_xmm_register_value(buffer: *mut c_void, buffer_len: usize, index: usize, value: &Option<Vec<String>>) {
     // XSAVE格式: XMM寄存器通常在偏移0xA0处开始
@@ -1326,18 +1365,36 @@ fn set_xmm_register_value(buffer: *mut c_void, buffer_len: usize, index: usize, 
             libc::memset(xmm_ptr as *mut libc::c_void, 0, 16);
         }
 
+        // YMM高位部分在偏移0x240处开始
+        let ymmh_base = unsafe { (buffer as *mut u8).add(0x240) };
+        let ymmh_ptr = unsafe { ymmh_base.add(index * 16) };
+
+        // 首先将YMM高位寄存器清零（如果缓冲区足够大）
+        if buffer_len >= 0x240 + (index + 1) * 16 {
+            unsafe {
+                libc::memset(ymmh_ptr as *mut libc::c_void, 0, 16);
+            }
+        }
+
         if let Some(values) = value {
             // 写入XMM寄存器值 (128位 = 16字节)
             for (i, val_str) in values.iter().enumerate() {
-                if i >= 2 {
-                    break; // XMM寄存器只有128位，即2个64位值
+                if i >= 4 {
+                    break; // 最多4个64位值（256位YMM寄存器）
                 }
 
                 // 只有非空字符串才尝试解析
                 if !val_str.trim().is_empty() {
                     if let Ok(val) = parse_hex_value(val_str) {
-                        let data_ptr = unsafe { (xmm_ptr as *mut u64).add(i) };
-                        unsafe { *data_ptr = val; }
+                        if i < 2 {
+                            // 前两个值写入XMM低128位
+                            let data_ptr = unsafe { (xmm_ptr as *mut u64).add(i) };
+                            unsafe { *data_ptr = val; }
+                        } else if buffer_len >= 0x240 + (index + 1) * 16 {
+                            // 后两个值写入YMM高128位（如果缓冲区足够大）
+                            let data_ptr = unsafe { (ymmh_ptr as *mut u64).add(i - 2) };
+                            unsafe { *data_ptr = val; }
+                        }
                     }
                 }
             }

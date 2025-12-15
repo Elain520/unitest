@@ -154,6 +154,21 @@ fn test_parse_real_asm_files() {
         assert!(parsed.config.memory_data.is_some());
         assert!(parsed.assembly_code.contains("mov rax, [0x10000000]"));
     }
+
+    let xmm_ymm_test_path = "tests/xmm_ymm_test.asm";
+    if Path::new(xmm_ymm_test_path).exists() {
+        let parsed = parser::parse_asm_test_file(xmm_ymm_test_path).unwrap();
+        assert!(parsed.config.reg_init.is_some());
+        if let Some(ref reg_init) = parsed.config.reg_init {
+            assert!(reg_init.xmm0.is_some());
+            let xmm0_values = reg_init.xmm0.as_ref().unwrap();
+            assert_eq!(xmm0_values.len(), 4);
+            assert_eq!(xmm0_values[0], "0x1111111111111111");
+            assert_eq!(xmm0_values[1], "0x2222222222222222");
+            assert_eq!(xmm0_values[2], "0x3333333333333333");
+            assert_eq!(xmm0_values[3], "0x4444444444444444");
+        }
+    }
 }
 
 #[test]
