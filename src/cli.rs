@@ -27,6 +27,10 @@ pub struct Cli {
     /// 静默模式：不显示任何输出
     #[clap(long = "quiet", short = 'q')]
     pub quiet: bool,
+
+    /// RegInit模式：如果设置，RegInit会通过代码初始化寄存器；否则RegInit会转换为初始化指令
+    #[clap(long = "reg-init-code", action = clap::ArgAction::SetTrue)]
+    pub reg_init_code: bool,
 }
 
 impl Cli {
@@ -48,6 +52,7 @@ mod tests {
         assert_eq!(cli.output_file, None);
         assert_eq!(cli.verbose, 0);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 
     #[test]
@@ -58,6 +63,7 @@ mod tests {
         assert_eq!(cli.output_file, None);
         assert_eq!(cli.verbose, 0);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 
     #[test]
@@ -68,6 +74,7 @@ mod tests {
         assert_eq!(cli.output_file, None);
         assert_eq!(cli.verbose, 0);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 
     #[test]
@@ -78,6 +85,7 @@ mod tests {
         assert_eq!(cli.output_file, Some("result.asm".to_string()));
         assert_eq!(cli.verbose, 0);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 
     #[test]
@@ -88,6 +96,7 @@ mod tests {
         assert_eq!(cli.output_file, None);
         assert_eq!(cli.verbose, 1);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 
     #[test]
@@ -98,6 +107,7 @@ mod tests {
         assert_eq!(cli.output_file, None);
         assert_eq!(cli.verbose, 2);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 
     #[test]
@@ -108,16 +118,29 @@ mod tests {
         assert_eq!(cli.output_file, None);
         assert_eq!(cli.verbose, 0);
         assert_eq!(cli.quiet, true);
+        assert_eq!(cli.reg_init_code, false);
+    }
+
+    #[test]
+    fn test_cli_with_reg_init_code_flag() {
+        let cli = Cli::parse_from(["test", "--reg-init-code"]);
+        assert_eq!(cli.test_file, None);
+        assert_eq!(cli.include_path, None);
+        assert_eq!(cli.output_file, None);
+        assert_eq!(cli.verbose, 0);
+        assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, true);
     }
 
     #[test]
     fn test_cli_with_combined_flags() {
-        let cli = Cli::parse_from(["test", "--test", "test.asm", "--include", "/include", "--output", "result.asm", "-v", "-q"]);
+        let cli = Cli::parse_from(["test", "--test", "test.asm", "--include", "/include", "--output", "result.asm", "-v", "-q", "--reg-init-code"]);
         assert_eq!(cli.test_file, Some("test.asm".to_string()));
         assert_eq!(cli.include_path, Some("/include".to_string()));
         assert_eq!(cli.output_file, Some("result.asm".to_string()));
         assert_eq!(cli.verbose, 1);
         assert_eq!(cli.quiet, true);
+        assert_eq!(cli.reg_init_code, true);
     }
 
     #[test]
@@ -128,5 +151,6 @@ mod tests {
         assert_eq!(cli.output_file, Some("result.asm".to_string()));
         assert_eq!(cli.verbose, 0);
         assert_eq!(cli.quiet, false);
+        assert_eq!(cli.reg_init_code, false);
     }
 }

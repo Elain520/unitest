@@ -165,6 +165,7 @@ OPTIONS:
     -q, --quiet                    Quiet mode, suppress all output
     -t, --test <FILE>              Test mode: specify the assembly file to test
     -v, --verbose                  Verbose mode: show more execution information
+        --reg-init-code            RegInit mode: if set, RegInit will be initialized through code; otherwise RegInit will be converted to initialization instructions
     -V, --version                  Print version information
 ```
 
